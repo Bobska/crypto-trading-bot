@@ -65,7 +65,7 @@ AI_ENABLED=true
 If using the AI advisor feature:
 
 ```bash
-# In a separate terminal, start your AI service
+# In a separate terminasl, start your AI service
 cd path/to/ai-service
 uvicorn api_server:app --reload --port 8000
 ```
@@ -94,6 +94,24 @@ Press `Ctrl+C` to gracefully shut down the bot. It will:
 - Send a daily summary to AI (if enabled)
 - Display final statistics
 - Exit cleanly
+
+### Monitoring the Bot
+
+Use the monitoring utility to watch bot activity without seeing all details:
+
+```bash
+python monitor.py
+```
+
+The monitor displays:
+- Last 20 lines of log activity
+- Total trades today (buy/sell breakdown)
+- Last price checked and current position
+- Account balance and win rate
+- Auto-refreshes every 60 seconds
+- Exit with `Ctrl+C`
+
+**Tip:** Run `monitor.py` in a separate terminal while the bot is running!
 
 ### What to Expect
 
@@ -166,6 +184,7 @@ crypto-trading-bot/
 ├── config.py            # Configuration loader
 ├── logger_setup.py      # Logging configuration
 ├── banner.py            # Startup banner display
+├── monitor.py           # Real-time monitoring utility
 ├── requirements.txt     # Python dependencies
 ├── .env                 # Environment variables (create this)
 ├── .gitignore          # Git ignore rules
