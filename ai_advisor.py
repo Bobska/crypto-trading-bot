@@ -209,6 +209,45 @@ Please remember these results and provide brief feedback."""
         
         return response
     
+    def ask_for_suggestions(self, buy_threshold: float, sell_threshold: float, stats: dict) -> Optional[str]:
+        """
+        Ask AI for strategy optimization suggestions
+        
+        Args:
+            buy_threshold: Current buy threshold percentage
+            sell_threshold: Current sell threshold percentage
+            stats: Dictionary containing trading statistics
+            
+        Returns:
+            AI suggestions string, or None if request fails
+        """
+        # Extract stats
+        win_rate = stats.get('win_rate', 0.0)
+        total_trades = stats.get('total_trades', 0)
+        
+        # Construct optimization prompt
+        prompt = f"""Current Settings:
+- Buy Threshold: {buy_threshold}%
+- Sell Threshold: {sell_threshold}%
+
+Results:
+- Win Rate: {win_rate:.1f}%
+- Total Trades: {total_trades}
+
+Should I adjust my grid spacing? Keep it brief."""
+        
+        # Log asking for suggestions
+        self.logger.info(f"🤖 Asking AI for strategy optimization suggestions")
+        
+        # Get AI suggestions
+        response = self._send_message(prompt)
+        
+        # Log response
+        if response:
+            self.logger.info(f"🤖 AI Suggestions: {response}")
+        
+        return response
+    
     def is_enabled(self) -> bool:
         """
         Check if AI advisor is enabled and available
