@@ -83,10 +83,14 @@ class AIAdvisor:
         try:
             chat_url = f"{self.api_url}/api/chat"
             
-            # Send message to AI API
+            # Send message to AI API (Ollama format)
             response = requests.post(
                 chat_url,
-                json={"message": message},
+                json={
+                    "model": "llama3.1:latest",
+                    "messages": [{"role": "user", "content": message}],
+                    "stream": False
+                },
                 timeout=10
             )
             
@@ -94,7 +98,7 @@ class AIAdvisor:
             
             # Extract response from JSON
             response_data = response.json()
-            return response_data.get('response')
+            return response_data.get('message', {}).get('content')
             
         except requests.exceptions.Timeout:
             self.logger.error(f"AI API request timeout for message: {message[:50]}...")
