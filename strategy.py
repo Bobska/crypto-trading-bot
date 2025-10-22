@@ -131,7 +131,7 @@ class GridTradingStrategy:
             if self.last_sell_price is None:
                 # First trade opportunity - no previous sell price to compare
                 self.logger.info(f"First trade opportunity detected at ${current_price:,.2f}")
-                self.logger.info("BUY SIGNAL: Initial entry into market")
+                self.logger.info("🟢 BUY SIGNAL: Initial entry into market")
                 return 'BUY'
             
             # Calculate price drop from last sell
@@ -141,7 +141,8 @@ class GridTradingStrategy:
             
             if price_drop >= self.buy_threshold:
                 # Price has dropped enough to trigger buy signal
-                self.logger.info(f"BUY SIGNAL: Price dropped {price_drop:.2f}% from ${self.last_sell_price:,.2f} to ${current_price:,.2f}")
+                price_change = self.last_sell_price - current_price
+                self.logger.info(f"🟢 BUY SIGNAL: Price dropped {price_drop:.2f}% (-${price_change:,.2f}) from ${self.last_sell_price:,.2f} to ${current_price:,.2f}")
                 self.logger.info(f"Drop threshold met: {price_drop:.2f}% >= {self.buy_threshold}%")
                 return 'BUY'
             else:
@@ -150,7 +151,33 @@ class GridTradingStrategy:
                 self.logger.debug(f"Need ${self.last_sell_price * (1 - self.buy_threshold/100):,.2f} or lower to trigger buy")
                 return 'HOLD'
         
-        # For now, only implement USDT position logic
-        # BTC position logic will be added later
-        self.logger.debug(f"Position {position} analysis not yet implemented")
-        return 'HOLD'
+        elif position == 'BTC':
+            # Holding BTC - looking for sell opportunities
+            
+            if self.last_buy_price is None:
+                # No previous buy price to compare - shouldn't happen in normal operation
+                self.logger.warning(f"No last_buy_price recorded while holding BTC at ${current_price:,.2f}")
+                self.logger.warning("Cannot determine sell signal without buy reference price")
+                return 'HOLD'
+            
+            # Calculate price rise from last buy
+            price_rise = ((current_price - self.last_buy_price) / self.last_buy_price) * 100
+            
+            self.logger.debug(f"Price rise calculation: (${current_price:,.2f} - ${self.last_buy_price:,.2f}) / ${self.last_buy_price:,.2f} * 100 = {price_rise:.2f}%")
+            
+            if price_rise >= self.sell_threshold:
+                # Price has risen enough to trigger sell signal
+                price_change = current_price - self.last_buy_price
+                self.logger.info(f"🔴 SELL SIGNAL: Price rose {price_rise:.2f}% (+${price_change:,.2f}) from ${self.last_buy_price:,.2f} to ${current_price:,.2f}")
+                self.logger.info(f"Rise threshold met: {price_rise:.2f}% >= {self.sell_threshold}%")
+                return 'SELL'
+            else:
+                # Price hasn't risen enough yet
+                self.logger.debug(f"HOLD: Price rise {price_rise:.2f}% below sell threshold of {self.sell_threshold}%")
+                self.logger.debug(f"Need ${self.last_buy_price * (1 + self.sell_threshold/100):,.2f} or higher to trigger sell")
+                return 'HOLD'
+        
+        else:
+            # Unknown position - return HOLD as default
+            self.logger.warning(f"Unknown position '{position}' - valid positions are 'USDT' or 'BTC'")
+            return 'HOLD'
