@@ -122,3 +122,45 @@ class TradingBot:
         else:
             # Invalid signal
             return False
+    
+    def run(self) -> None:
+        """
+        Start the trading bot main loop
+        
+        Continuously monitors price and executes trades based on strategy signals.
+        Runs until interrupted by user (Ctrl+C).
+        """
+        # Set running flag
+        self.running = True
+        
+        # Log startup
+        self.logger.info(f"🚀 Trading Bot starting...")
+        
+        # Print user-friendly startup messages
+        print()
+        print("=" * 60)
+        print("🚀 Trading Bot is now running!")
+        print("=" * 60)
+        print(f"Symbol: {self.symbol}")
+        print(f"Check Interval: {self.check_interval} seconds")
+        print()
+        print("Press Ctrl+C to stop")
+        print("=" * 60)
+        print()
+        
+        try:
+            # Initialize iteration counter
+            iteration = 0
+            
+            # Main trading loop
+            while self.running:
+                iteration += 1
+                
+                # TODO: Add loop contents in next prompt
+                pass
+                
+        except KeyboardInterrupt:
+            # Handle user interruption
+            self.logger.info("Bot stopped by user")
+            print("\n👋 Trading Bot stopped by user")
+            self.running = False
