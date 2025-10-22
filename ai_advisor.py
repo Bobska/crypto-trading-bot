@@ -161,6 +161,54 @@ Should I take this {signal} trade? Quick advice please."""
         
         return response
     
+    def send_daily_summary(self, stats: dict, balance: dict) -> Optional[str]:
+        """
+        Send daily trading summary to AI for memory and feedback
+        
+        Args:
+            stats: Dictionary containing trading statistics
+            balance: Dictionary containing account balances
+            
+        Returns:
+            AI feedback string, or None if request fails
+        """
+        # Extract stats
+        total_trades = stats.get('total_trades', 0)
+        wins = stats.get('wins', 0)
+        losses = stats.get('losses', 0)
+        win_rate = stats.get('win_rate', 0.0)
+        
+        # Extract balance
+        usdt_balance = balance.get('USDT', 0.0)
+        btc_balance = balance.get('BTC', 0.0)
+        
+        # Construct daily summary prompt
+        prompt = f"""Trading Bot Daily Summary
+        
+Performance:
+- Total Trades: {total_trades}
+- Wins: {wins}
+- Losses: {losses}
+- Win Rate: {win_rate:.1f}%
+
+Balance:
+- USDT: ${usdt_balance:,.2f}
+- BTC: {btc_balance:.8f}
+
+Please remember these results and provide brief feedback."""
+        
+        # Log sending summary
+        self.logger.info(f"🤖 Sending daily summary to AI")
+        
+        # Get AI feedback
+        response = self._send_message(prompt)
+        
+        # Log feedback
+        if response:
+            self.logger.info(f"🤖 AI Feedback: {response}")
+        
+        return response
+    
     def is_enabled(self) -> bool:
         """
         Check if AI advisor is enabled and available
