@@ -44,7 +44,32 @@ def main():
         print(f"   BTC:  {balance.get('BTC', 0.0):.6f}")
         print()
         
-        # TODO: Create strategy and AI advisor instances
+        # Initialize trading strategy
+        logger.info("Initializing trading strategy...")
+        strategy = GridTradingStrategy(
+            buy_threshold=config.BUY_THRESHOLD,
+            sell_threshold=config.SELL_THRESHOLD,
+            trade_amount=config.TRADE_AMOUNT
+        )
+        
+        # Display strategy settings
+        print("📊 Strategy Settings:")
+        print(f"   Symbol: {config.SYMBOL}")
+        print(f"   Buy Threshold: {config.BUY_THRESHOLD}%")
+        print(f"   Sell Threshold: {config.SELL_THRESHOLD}%")
+        print(f"   Trade Amount: {config.TRADE_AMOUNT} BTC")
+        print()
+        
+        # Initialize AI advisor
+        if config.AI_ENABLED:
+            logger.info("Initializing AI Advisor...")
+            ai_advisor = AIAdvisor(api_url=config.AI_API_URL)
+        else:
+            logger.info("AI Advisor is disabled")
+            print("⚠️  AI Advisor: DISABLED")
+            print()
+            ai_advisor = AIAdvisor(api_url="")
+        
         # TODO: Create trading bot instance
         # TODO: Start bot
         
