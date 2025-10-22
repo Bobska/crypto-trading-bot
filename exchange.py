@@ -161,3 +161,45 @@ class BinanceTestnet:
         except Exception as e:
             self.logger.error(f"Failed to get current price for {symbol}: {str(e)}")
             return None
+    
+    def get_balance(self) -> Optional[Dict[str, float]]:
+        """
+        Get account balance for USDT and BTC
+        
+        Returns:
+            Dictionary with 'USDT' and 'BTC' balance, or None if failed
+        """
+        if not self.is_connected():
+            self.logger.error("Cannot get balance - exchange not connected")
+            return None
+        
+        if not self.exchange:
+            self.logger.error("Cannot get balance - exchange not initialized")
+            return None
+        
+        try:
+            # Fetch account balance
+            balance_data = self.exchange.fetch_balance()
+            
+            # Extract free balance for USDT and BTC, default to 0 if not found
+            usdt_balance = balance_data.get('USDT', {}).get('free', 0) or 0
+            btc_balance = balance_data.get('BTC', {}).get('free', 0) or 0
+            
+            # Convert to float to ensure consistent type
+            usdt_balance = float(usdt_balance)
+            btc_balance = float(btc_balance)
+            
+            # Create result dictionary
+            balances = {
+                'USDT': usdt_balance,
+                'BTC': btc_balance
+            }
+            
+            # Log with formatted numbers
+            self.logger.info(f"Account Balance - USDT: {usdt_balance:,.2f}, BTC: {btc_balance:.8f}")
+            
+            return balances
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get account balance: {str(e)}")
+            return None
