@@ -39,7 +39,8 @@ class AIAdvisor:
         Sets enabled flag based on health check result
         """
         try:
-            health_url = f"{self.api_url}/health"
+            # Check root endpoint for Ollama-style API
+            health_url = f"{self.api_url}/"
             
             self.logger.debug(f"Testing AI API health at: {health_url}")
             
