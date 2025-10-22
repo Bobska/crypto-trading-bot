@@ -2,6 +2,8 @@
 Trading Bot Module
 Main trading bot that coordinates exchange, strategy, and AI advisor
 """
+import time
+import traceback
 from logger_setup import setup_logger
 
 class TradingBot:
@@ -156,11 +158,52 @@ class TradingBot:
             while self.running:
                 iteration += 1
                 
-                # TODO: Add loop contents in next prompt
-                pass
+                # 1. Get current price
+                current_price = self.exchange.get_current_price(self.symbol)
+                
+                if current_price is None:
+                    self.logger.warning("⚠️ Failed to get current price, skipping iteration")
+                    time.sleep(self.check_interval)
+                    continue
+                
+                # 2. Get trading signal
+                signal = self.strategy.analyze(current_price, self.position)
+                
+                # 3. Print status every 10 iterations OR when signal != 'HOLD'
+                if iteration % 10 == 0 or signal != 'HOLD':
+                    self.print_status(current_price)
+                
+                # 4. Execute trade if signal is not HOLD
+                if signal != 'HOLD':
+                    # Get current stats
+                    stats = self.strategy.get_stats()
+                    
+                    # Get AI recommendation
+                    ai_advice = self.ai_advisor.analyze_trade_opportunity(signal, current_price, stats)
+                    
+                    # Execute the trade
+                    self.execute_trade(signal, current_price)
+                
+                # 5. Sleep for check interval
+                time.sleep(self.check_interval)
                 
         except KeyboardInterrupt:
             # Handle user interruption
-            self.logger.info("Bot stopped by user")
+            self.logger.info("⏸️ Bot stopped by user")
             print("\n👋 Trading Bot stopped by user")
-            self.running = False
+            self.stop()
+            
+        except Exception as e:
+            # Handle unexpected errors
+            self.logger.error(f"❌ Unexpected error: {str(e)}")
+            self.logger.error(traceback.format_exc())
+            print(f"\n❌ Error occurred: {str(e)}")
+            self.stop()
+    
+    def stop(self) -> None:
+        """
+        Stop the trading bot gracefully
+        """
+        self.running = False
+        self.logger.info("Trading Bot stopped")
+        print("Bot has been stopped")
