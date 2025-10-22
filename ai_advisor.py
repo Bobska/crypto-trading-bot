@@ -91,7 +91,7 @@ class AIAdvisor:
                     "messages": [{"role": "user", "content": message}],
                     "stream": False
                 },
-                timeout=10
+                timeout=30  # Increased timeout for longer AI responses
             )
             
             response.raise_for_status()  # Raise error for bad status codes
@@ -111,6 +111,55 @@ class AIAdvisor:
         except Exception as e:
             self.logger.error(f"Unexpected error sending message to AI: {str(e)}")
             return None
+    
+    def analyze_trade_opportunity(self, signal: str, price: float, stats: dict) -> Optional[str]:
+        """
+        Analyze a trade opportunity and get AI recommendation
+        
+        Args:
+            signal: Trade signal ('BUY', 'SELL', or 'HOLD')
+            price: Current price of the asset
+            stats: Dictionary containing trading statistics
+            
+        Returns:
+            AI recommendation string, or None if no analysis needed
+        """
+        # No need to analyze HOLD signals
+        if signal == 'HOLD':
+            return None
+        
+        # Format price with commas
+        formatted_price = f"${price:,.2f}"
+        
+        # Extract stats
+        total_trades = stats.get('total_trades', 0)
+        wins = stats.get('wins', 0)
+        losses = stats.get('losses', 0)
+        win_rate = stats.get('win_rate', 0.0)
+        
+        # Construct detailed prompt
+        prompt = f"""Trade Signal: {signal}
+Current Price: {formatted_price}
+Trading Stats:
+- Total Trades: {total_trades}
+- Wins: {wins}
+- Losses: {losses}
+- Win Rate: {win_rate:.1f}%
+
+Should I take this {signal} trade? Quick advice please."""
+        
+        # Log AI consultation
+        self.logger.info(f"🤖 Asking AI about {signal} trade at {formatted_price}")
+        
+        # Get AI response
+        response = self._send_message(prompt)
+        
+        # Log response summary
+        if response:
+            summary = response[:200] + "..." if len(response) > 200 else response
+            self.logger.info(f"🤖 AI Response: {summary}")
+        
+        return response
     
     def is_enabled(self) -> bool:
         """
