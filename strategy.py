@@ -223,3 +223,19 @@ class GridTradingStrategy:
             # No buy price recorded (shouldn't happen in normal operation)
             self.logger.info(f"📝 SELL RECORDED: ${price:,.2f} (Trade #{self.total_trades})")
             self.logger.warning("No corresponding buy price found - cannot calculate P&L")
+    
+    def get_stats(self) -> dict:
+        """
+        Get strategy performance statistics
+        
+        Returns:
+            Dictionary with trading performance metrics
+        """
+        win_rate = (self.wins / self.total_trades * 100) if self.total_trades > 0 else 0
+        
+        return {
+            'total_trades': self.total_trades,
+            'wins': self.wins,
+            'losses': self.losses,
+            'win_rate': win_rate
+        }
