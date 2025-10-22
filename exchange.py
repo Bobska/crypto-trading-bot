@@ -24,22 +24,25 @@ class BinanceTestnet:
         self.exchange: Optional[ccxt.binance] = None
         
         try:
-            # Initialize ccxt Binance exchange instance
-            self.exchange = ccxt.binance()
-            self.exchange.apiKey = api_key
-            self.exchange.secret = secret
-            self.exchange.sandbox = True  # Enable testnet/sandbox mode
-            self.exchange.rateLimit = True  # Enable built-in rate limiting
-            self.exchange.enableRateLimit = True  # Additional rate limit protection
-            
-            # Set testnet URLs - correct format for Binance testnet
-            self.exchange.urls['api'] = {
-                'public': 'https://testnet.binance.vision/api/v3',
-                'private': 'https://testnet.binance.vision/api/v3',
-            }
-            
-            # Configure for spot trading
-            self.exchange.options['defaultType'] = 'spot'
+            # Initialize ccxt Binance exchange instance for testnet
+            self.exchange = ccxt.binance({
+                'apiKey': api_key,
+                'secret': secret,
+                'sandbox': True,  # Enable testnet/sandbox mode
+                'rateLimit': True,  # Enable built-in rate limiting
+                'enableRateLimit': True,  # Additional rate limit protection
+                'urls': {
+                    'api': {
+                        'public': 'https://testnet.binance.vision/api/v3',
+                        'private': 'https://testnet.binance.vision/api/v3',
+                        'fapiPublic': 'https://testnet.binancefuture.com/fapi/v1',
+                        'fapiPrivate': 'https://testnet.binancefuture.com/fapi/v1',
+                    }
+                },
+                'options': {
+                    'defaultType': 'spot',  # Use spot trading
+                }
+            })
             
             # Test the connection
             self._test_connection()
@@ -112,3 +115,49 @@ class BinanceTestnet:
         except Exception as e:
             self.logger.error(f"Failed to get exchange info: {str(e)}")
             raise
+    
+    def get_current_price(self, symbol: str) -> Optional[float]:
+        """
+        Get current market price for a trading symbol
+        
+        Args:
+            symbol: Trading pair symbol (e.g., 'BTC/USDT')
+            
+        Returns:
+            Current price as float, or None if failed
+        """
+        if not self.is_connected():
+            self.logger.error("Cannot get price - exchange not connected")
+            return None
+        
+        if not self.exchange:
+            self.logger.error("Cannot get price - exchange not initialized")
+            return None
+        
+        try:
+            # For testnet compatibility, we'll try different approaches
+            # First try the standard ticker method
+            try:
+                ticker = self.exchange.fetch_ticker(symbol)
+                current_price = float(ticker['last'])
+            except Exception as ticker_error:
+                self.logger.warning(f"Standard ticker failed for {symbol}, trying order book method: {str(ticker_error)}")
+                # Fallback to order book method which works better with testnet
+                order_book = self.exchange.fetch_order_book(symbol)
+                # Use the midpoint between best bid and ask
+                if order_book['bids'] and order_book['asks']:
+                    best_bid = float(order_book['bids'][0][0])
+                    best_ask = float(order_book['asks'][0][0])
+                    current_price = (best_bid + best_ask) / 2
+                else:
+                    raise Exception("No bid/ask data available")
+            
+            # Log with formatted output
+            formatted_price = f"${current_price:,.2f}"
+            self.logger.info(f"Current price for {symbol}: {formatted_price}")
+            
+            return current_price
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get current price for {symbol}: {str(e)}")
+            return None
