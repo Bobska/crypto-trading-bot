@@ -1,6 +1,15 @@
 """
-Main entry point for the Crypto Trading Bot
-Initializes all components and starts the trading bot
+Crypto Trading Bot - Main Entry Point
+
+This script implements an automated cryptocurrency trading bot using:
+- Grid Trading Strategy: Buy low, sell high with percentage thresholds
+- AI Integration: Real-time trade analysis and strategy recommendations
+- Exchange: Binance Testnet (no real money)
+
+The bot continuously monitors price movements and executes trades based on
+the strategy signals, with optional AI advisor consultation for each trade.
+
+Note: Runs on TESTNET only - no real funds are used or at risk.
 """
 import config
 from exchange import BinanceTestnet
