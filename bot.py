@@ -202,8 +202,17 @@ class TradingBot:
     
     def stop(self) -> None:
         """
-        Stop the trading bot gracefully
+        Stop the trading bot gracefully and send daily summary to AI
         """
         self.running = False
+        
+        # Get final statistics and balance
+        final_stats = self.strategy.get_stats()
+        final_balance = self.exchange.get_balance()
+        
+        # Send daily summary to AI advisor
+        self.ai_advisor.send_daily_summary(final_stats, final_balance)
+        
+        # Log shutdown
         self.logger.info("Trading Bot stopped")
         print("Bot has been stopped")
