@@ -65,6 +65,48 @@ class AIAdvisor:
             self.logger.warning(f"⚠️ AI API health check error: {str(e)}")
             self.enabled = False
     
+    def _send_message(self, message: str) -> Optional[str]:
+        """
+        Send a message to the AI service
+        
+        Args:
+            message: The message to send to the AI
+            
+        Returns:
+            AI response text, or None if request fails
+        """
+        # Early return if AI is offline
+        if not self.enabled:
+            return "AI Assistant is offline"
+        
+        try:
+            chat_url = f"{self.api_url}/api/chat"
+            
+            # Send message to AI API
+            response = requests.post(
+                chat_url,
+                json={"message": message},
+                timeout=10
+            )
+            
+            response.raise_for_status()  # Raise error for bad status codes
+            
+            # Extract response from JSON
+            response_data = response.json()
+            return response_data.get('response')
+            
+        except requests.exceptions.Timeout:
+            self.logger.error(f"AI API request timeout for message: {message[:50]}...")
+            return None
+            
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"AI API request failed: {str(e)}")
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Unexpected error sending message to AI: {str(e)}")
+            return None
+    
     def is_enabled(self) -> bool:
         """
         Check if AI advisor is enabled and available
