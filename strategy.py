@@ -111,3 +111,46 @@ class GridTradingStrategy:
         self.sell_threshold = sell_threshold
         
         self.logger.info(f"Thresholds updated - Buy: {old_buy}% -> {buy_threshold}%, Sell: {old_sell}% -> {sell_threshold}%")
+    
+    def analyze(self, current_price: float, position: str) -> str:
+        """
+        Analyze current market conditions and return trading signal
+        
+        Args:
+            current_price: Current market price of the trading pair
+            position: Current position ('USDT' for cash, 'BTC' for holding crypto)
+            
+        Returns:
+            Trading signal: 'BUY', 'SELL', or 'HOLD'
+        """
+        self.logger.debug(f"Analyzing price: ${current_price:,.2f}, Position: {position}")
+        
+        if position == 'USDT':
+            # Holding cash (USDT) - looking for buy opportunities
+            
+            if self.last_sell_price is None:
+                # First trade opportunity - no previous sell price to compare
+                self.logger.info(f"First trade opportunity detected at ${current_price:,.2f}")
+                self.logger.info("BUY SIGNAL: Initial entry into market")
+                return 'BUY'
+            
+            # Calculate price drop from last sell
+            price_drop = ((self.last_sell_price - current_price) / self.last_sell_price) * 100
+            
+            self.logger.debug(f"Price drop calculation: (${self.last_sell_price:,.2f} - ${current_price:,.2f}) / ${self.last_sell_price:,.2f} * 100 = {price_drop:.2f}%")
+            
+            if price_drop >= self.buy_threshold:
+                # Price has dropped enough to trigger buy signal
+                self.logger.info(f"BUY SIGNAL: Price dropped {price_drop:.2f}% from ${self.last_sell_price:,.2f} to ${current_price:,.2f}")
+                self.logger.info(f"Drop threshold met: {price_drop:.2f}% >= {self.buy_threshold}%")
+                return 'BUY'
+            else:
+                # Price hasn't dropped enough yet
+                self.logger.debug(f"HOLD: Price drop {price_drop:.2f}% below buy threshold of {self.buy_threshold}%")
+                self.logger.debug(f"Need ${self.last_sell_price * (1 - self.buy_threshold/100):,.2f} or lower to trigger buy")
+                return 'HOLD'
+        
+        # For now, only implement USDT position logic
+        # BTC position logic will be added later
+        self.logger.debug(f"Position {position} analysis not yet implemented")
+        return 'HOLD'
