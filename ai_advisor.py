@@ -153,16 +153,20 @@ class AIAdvisor:
         losses = stats.get('losses', 0)
         win_rate = stats.get('win_rate', 0.0)
         
-        # Construct detailed prompt
-        prompt = f"""Trade Signal: {signal}
-Current Price: {formatted_price}
-Trading Stats:
+        # Construct detailed prompt with clear price emphasis
+        prompt = f"""CURRENT TRADE ANALYSIS REQUEST
+
+Signal: {signal}
+Price NOW: {formatted_price}
+
+Recent Performance:
 - Total Trades: {total_trades}
 - Wins: {wins}
 - Losses: {losses}
 - Win Rate: {win_rate:.1f}%
 
-Should I take this {signal} trade? Quick advice please."""
+Question: Should I execute this {signal} order at {formatted_price}? 
+Please provide quick advice based on the CURRENT price of {formatted_price}."""
         
         # Log AI consultation
         self.logger.info(f"🤖 Asking AI about {signal} trade at {formatted_price}")
