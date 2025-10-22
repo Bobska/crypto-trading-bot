@@ -203,3 +203,69 @@ class BinanceTestnet:
         except Exception as e:
             self.logger.error(f"Failed to get account balance: {str(e)}")
             return None
+    
+    def place_market_buy(self, symbol: str, amount: float) -> Optional[Dict[str, Any]]:
+        """
+        Place a market buy order
+        
+        Args:
+            symbol: Trading pair symbol (e.g., 'BTC/USDT')
+            amount: Amount of base currency to buy
+            
+        Returns:
+            Order object on success, None on failure
+        """
+        if not self.is_connected():
+            self.logger.error("Cannot place buy order - exchange not connected")
+            return None
+        
+        if not self.exchange:
+            self.logger.error("Cannot place buy order - exchange not initialized")
+            return None
+        
+        try:
+            # Create market buy order
+            order = self.exchange.create_market_buy_order(symbol, amount)
+            
+            # Log successful buy order
+            self.logger.info(f"✅ BUY ORDER PLACED: {amount} {symbol.split('/')[0]} at market price")
+            self.logger.info(f"Order ID: {order.get('id', 'N/A')}")
+            
+            return order
+            
+        except Exception as e:
+            self.logger.error(f"❌ FAILED TO PLACE BUY ORDER: {symbol} amount {amount} - {str(e)}")
+            return None
+    
+    def place_market_sell(self, symbol: str, amount: float) -> Optional[Dict[str, Any]]:
+        """
+        Place a market sell order
+        
+        Args:
+            symbol: Trading pair symbol (e.g., 'BTC/USDT')
+            amount: Amount of base currency to sell
+            
+        Returns:
+            Order object on success, None on failure
+        """
+        if not self.is_connected():
+            self.logger.error("Cannot place sell order - exchange not connected")
+            return None
+        
+        if not self.exchange:
+            self.logger.error("Cannot place sell order - exchange not initialized")
+            return None
+        
+        try:
+            # Create market sell order
+            order = self.exchange.create_market_sell_order(symbol, amount)
+            
+            # Log successful sell order
+            self.logger.info(f"✅ SELL ORDER PLACED: {amount} {symbol.split('/')[0]} at market price")
+            self.logger.info(f"Order ID: {order.get('id', 'N/A')}")
+            
+            return order
+            
+        except Exception as e:
+            self.logger.error(f"❌ FAILED TO PLACE SELL ORDER: {symbol} amount {amount} - {str(e)}")
+            return None
