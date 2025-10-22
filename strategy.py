@@ -181,3 +181,45 @@ class GridTradingStrategy:
             # Unknown position - return HOLD as default
             self.logger.warning(f"Unknown position '{position}' - valid positions are 'USDT' or 'BTC'")
             return 'HOLD'
+    
+    def record_buy(self, price: float) -> None:
+        """
+        Record a buy trade execution
+        
+        Args:
+            price: The executed buy price
+        """
+        self.last_buy_price = price
+        self.total_trades += 1
+        
+        self.logger.info(f"📝 BUY RECORDED: ${price:,.2f} (Trade #{self.total_trades})")
+    
+    def record_sell(self, price: float) -> None:
+        """
+        Record a sell trade execution and calculate P&L
+        
+        Args:
+            price: The executed sell price
+        """
+        self.last_sell_price = price
+        self.total_trades += 1
+        
+        if self.last_buy_price is not None:
+            # Calculate profit/loss percentage
+            profit_loss_pct = ((price - self.last_buy_price) / self.last_buy_price) * 100
+            profit_loss_amount = price - self.last_buy_price
+            
+            if profit_loss_pct > 0:
+                # Profitable trade
+                self.wins += 1
+                self.logger.info(f"📝 SELL RECORDED: ${price:,.2f} (Trade #{self.total_trades})")
+                self.logger.info(f"✅ PROFIT: +{profit_loss_pct:.2f}% (+${profit_loss_amount:,.2f}) - Buy: ${self.last_buy_price:,.2f} -> Sell: ${price:,.2f}")
+            else:
+                # Loss or break-even trade
+                self.losses += 1
+                self.logger.info(f"📝 SELL RECORDED: ${price:,.2f} (Trade #{self.total_trades})")
+                self.logger.info(f"❌ LOSS: {profit_loss_pct:.2f}% (${profit_loss_amount:,.2f}) - Buy: ${self.last_buy_price:,.2f} -> Sell: ${price:,.2f}")
+        else:
+            # No buy price recorded (shouldn't happen in normal operation)
+            self.logger.info(f"📝 SELL RECORDED: ${price:,.2f} (Trade #{self.total_trades})")
+            self.logger.warning("No corresponding buy price found - cannot calculate P&L")
