@@ -70,16 +70,29 @@ def main():
             print()
             ai_advisor = AIAdvisor(api_url="")
         
-        # TODO: Create trading bot instance
-        # TODO: Start bot
+        # Create trading bot
+        logger.info("Creating trading bot instance...")
+        trading_bot = TradingBot(
+            exchange=exchange,
+            strategy=strategy,
+            ai_advisor=ai_advisor,
+            symbol=config.SYMBOL,
+            check_interval=config.CHECK_INTERVAL
+        )
         
         logger.info("Initialization complete")
+        logger.info("Starting trading bot...")
+        
+        # Start the bot
+        trading_bot.run()
+        
+    except KeyboardInterrupt:
+        logger.info("Shutdown requested by user (Ctrl+C)")
+        print("\n👋 Goodbye!")
         
     except Exception as e:
         logger = setup_logger('Main')
-        logger.error(f"Fatal error during initialization: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"Fatal error: {str(e)}", exc_info=True)
         print(f"\n❌ Fatal error: {str(e)}")
         print("   Check logs for details")
 
