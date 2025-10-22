@@ -71,3 +71,54 @@ class TradingBot:
         print(f"Stats: {stats['total_trades']} trades | {stats['wins']} wins | {stats['losses']} losses | {stats['win_rate']:.1f}% win rate")
         print("=" * 60)
         print()
+    
+    def execute_trade(self, signal: str, price: float) -> bool:
+        """
+        Execute a trade based on signal
+        
+        Args:
+            signal: Trade signal ('BUY' or 'SELL')
+            price: Current price for the trade
+            
+        Returns:
+            True if trade executed successfully, False otherwise
+        """
+        if signal == 'BUY':
+            # Log buy execution attempt
+            self.logger.info(f"🟢 Executing BUY order at ${price:,.2f}")
+            
+            # Place market buy order
+            order = self.exchange.place_market_buy(self.symbol, self.strategy.trade_amount)
+            
+            if order:
+                # Record successful buy
+                self.strategy.record_buy(price)
+                self.position = 'BTC'
+                self.logger.info(f"✅ BUY order successful - Position changed to BTC")
+                return True
+            else:
+                # Log failure
+                self.logger.error(f"❌ BUY order failed")
+                return False
+        
+        elif signal == 'SELL':
+            # Log sell execution attempt
+            self.logger.info(f"🔴 Executing SELL order at ${price:,.2f}")
+            
+            # Place market sell order
+            order = self.exchange.place_market_sell(self.symbol, self.strategy.trade_amount)
+            
+            if order:
+                # Record successful sell
+                self.strategy.record_sell(price)
+                self.position = 'USDT'
+                self.logger.info(f"✅ SELL order successful - Position changed to USDT")
+                return True
+            else:
+                # Log failure
+                self.logger.error(f"❌ SELL order failed")
+                return False
+        
+        else:
+            # Invalid signal
+            return False
