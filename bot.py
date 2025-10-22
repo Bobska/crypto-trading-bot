@@ -44,3 +44,30 @@ class TradingBot:
         self.logger.info(f"Trading Bot initialized for {symbol}")
         self.logger.info(f"Check interval: {check_interval} seconds")
         self.logger.info(f"Starting position: {self.position}")
+    
+    def print_status(self, current_price: float) -> None:
+        """
+        Print current bot status with price, position, balance, and stats
+        
+        Args:
+            current_price: Current price of the trading pair
+        """
+        # Get current stats and balance
+        stats = self.strategy.get_stats()
+        balance = self.exchange.get_balance()
+        
+        # Format price with commas
+        formatted_price = f"${current_price:,.2f}"
+        
+        # Print status box
+        print()
+        print("=" * 60)
+        print("🤖 TRADING BOT STATUS")
+        print("=" * 60)
+        print(f"Symbol: {self.symbol}")
+        print(f"Current Price: {formatted_price}")
+        print(f"Position: {self.position}")
+        print(f"Balance: ${balance.get('USDT', 0.0):.2f} USDT | {balance.get('BTC', 0.0):.6f} BTC")
+        print(f"Stats: {stats['total_trades']} trades | {stats['wins']} wins | {stats['losses']} losses | {stats['win_rate']:.1f}% win rate")
+        print("=" * 60)
+        print()
