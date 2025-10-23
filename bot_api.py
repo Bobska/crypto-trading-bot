@@ -2,14 +2,55 @@
 Trading Bot API Server
 Exposes FastAPI endpoints to control and monitor the trading bot
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 from pathlib import Path
 import threading
 import re
 import json
+import asyncio
 from typing import Optional, Dict, List
+
+# WebSocket Connection Manager
+class ConnectionManager:
+    """Manages WebSocket connections and broadcasts messages"""
+    
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+    
+    async def connect(self, websocket: WebSocket):
+        """Accept and add WebSocket connection"""
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        print(f"✅ WebSocket connected. Total connections: {len(self.active_connections)}")
+    
+    def disconnect(self, websocket: WebSocket):
+        """Remove WebSocket connection"""
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+            print(f"❌ WebSocket disconnected. Total connections: {len(self.active_connections)}")
+    
+    async def broadcast(self, message: dict):
+        """Broadcast message to all connected clients"""
+        if not self.active_connections:
+            return
+        
+        # Convert to JSON string
+        message_json = json.dumps(message)
+        
+        # Send to all connections (remove dead connections)
+        dead_connections = []
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(message_json)
+            except Exception as e:
+                print(f"Error sending to WebSocket: {e}")
+                dead_connections.append(connection)
+        
+        # Clean up dead connections
+        for connection in dead_connections:
+            self.disconnect(connection)
 
 # Create FastAPI app
 app = FastAPI(title="Trading Bot API", version="1.0.0")
@@ -27,6 +68,9 @@ app.add_middleware(
 trading_bot: Optional[object] = None
 bot_thread: Optional[threading.Thread] = None
 bot_running = False
+
+# WebSocket manager instance
+manager = ConnectionManager()
 
 def is_bot_running() -> bool:
     """Check if bot is running by looking for recent state updates"""
@@ -263,6 +307,49 @@ async def stop_bot():
         return {"status": "stopped", "message": "Bot stopped successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error stopping bot: {str(e)}")
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time updates"""
+    await manager.connect(websocket)
+    
+    try:
+        # Send initial status on connect
+        status_data = await get_status()
+        await websocket.send_text(json.dumps({
+            "type": "status",
+            "data": status_data
+        }))
+        
+        # Keep connection alive and handle incoming messages
+        while True:
+            try:
+                # Receive messages from client
+                data = await websocket.receive_text()
+                message = json.loads(data)
+                
+                # Handle client commands
+                if message.get("command") == "get_status":
+                    status_data = await get_status()
+                    await websocket.send_text(json.dumps({
+                        "type": "status",
+                        "data": status_data
+                    }))
+                elif message.get("command") == "get_stats":
+                    stats_data = await get_stats()
+                    await websocket.send_text(json.dumps({
+                        "type": "stats",
+                        "data": stats_data
+                    }))
+                    
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                print(f"WebSocket error: {e}")
+                await asyncio.sleep(1)
+    
+    finally:
+        manager.disconnect(websocket)
 
 @app.get("/")
 async def root():
