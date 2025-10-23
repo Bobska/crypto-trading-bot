@@ -29,7 +29,8 @@ class GridTradingStrategy:
     - May miss opportunities in fast-moving markets
     """
     
-    def __init__(self, buy_threshold: float, sell_threshold: float, trade_amount: float, stop_loss_percentage: float = 3.0):
+    def __init__(self, buy_threshold: float, sell_threshold: float, trade_amount: float, stop_loss_percentage: float = 3.0, 
+                 use_trailing_stop: bool = False, trailing_stop_percentage: float = 1.5):
         """
         Initialize Grid Trading Strategy
         
@@ -38,6 +39,8 @@ class GridTradingStrategy:
             sell_threshold: Percentage rise to trigger sell orders (e.g., 1.0 for 1%)
             trade_amount: Amount to trade per order (base currency)
             stop_loss_percentage: Maximum loss percentage before emergency sell (default: 3.0%)
+            use_trailing_stop: Enable trailing stop loss to lock in profits (default: False)
+            trailing_stop_percentage: Drawdown percentage from peak to trigger trailing stop (default: 1.5%)
         """
         self.logger = setup_logger('GridTradingStrategy')
         
@@ -47,6 +50,11 @@ class GridTradingStrategy:
         self.trade_amount = trade_amount
         self.base_trade_amount = trade_amount  # Store original amount
         self.stop_loss_percentage = stop_loss_percentage
+        
+        # Trailing stop parameters
+        self.use_trailing_stop = use_trailing_stop
+        self.trailing_stop_percentage = trailing_stop_percentage
+        self.highest_price_since_buy: Optional[float] = None
         
         # Dynamic position sizing parameters
         self.min_position_size = trade_amount * 0.5  # 50% of base amount
@@ -76,6 +84,10 @@ class GridTradingStrategy:
         self.logger.info(f"Sell threshold: {self.sell_threshold}%")
         self.logger.info(f"Trade amount: {self.trade_amount}")
         self.logger.info(f"Stop loss: {self.stop_loss_percentage}%")
+        if self.use_trailing_stop:
+            self.logger.info(f"Trailing stop: ENABLED ({self.trailing_stop_percentage}%)")
+        else:
+            self.logger.info("Trailing stop: DISABLED")
         self.logger.info("Strategy ready for execution")
     
     def get_strategy_stats(self) -> dict:
@@ -233,6 +245,40 @@ class GridTradingStrategy:
                 self.logger.warning("Cannot determine sell signal without buy reference price")
                 return 'HOLD'
             
+            # Update trailing stop tracking
+            if self.use_trailing_stop:
+                # Initialize highest price on first check
+                if self.highest_price_since_buy is None:
+                    self.highest_price_since_buy = current_price
+                    self.logger.debug(f"Trailing stop initialized at ${current_price:,.2f}")
+                
+                # Update highest price if current is higher
+                elif current_price > self.highest_price_since_buy:
+                    old_high = self.highest_price_since_buy
+                    self.highest_price_since_buy = current_price
+                    self.logger.info(f"📊 New peak price: ${old_high:,.2f} -> ${current_price:,.2f}")
+                
+                # Check for trailing stop trigger
+                drawdown = ((self.highest_price_since_buy - current_price) / self.highest_price_since_buy) * 100
+                
+                if drawdown >= self.trailing_stop_percentage:
+                    # Trailing stop triggered - sell to lock in profits
+                    price_drop = self.highest_price_since_buy - current_price
+                    profit_from_entry = current_price - self.last_buy_price
+                    profit_pct_from_entry = ((current_price - self.last_buy_price) / self.last_buy_price) * 100
+                    
+                    self.logger.warning(f"🛑 TRAILING STOP TRIGGERED!")
+                    self.logger.warning(f"🛑 Peak: ${self.highest_price_since_buy:,.2f}, Current: ${current_price:,.2f}")
+                    self.logger.warning(f"🛑 Drawdown: {drawdown:.2f}% (-${price_drop:,.2f}) from peak")
+                    self.logger.info(f"💰 Locking in profit: +{profit_pct_from_entry:.2f}% (+${profit_from_entry:,.2f}) from entry ${self.last_buy_price:,.2f}")
+                    
+                    # Reset trailing stop for next trade
+                    self.highest_price_since_buy = None
+                    
+                    return 'SELL'
+                else:
+                    self.logger.debug(f"Trailing stop: drawdown {drawdown:.2f}% < {self.trailing_stop_percentage}% threshold")
+            
             # Calculate price rise from last buy
             price_rise = ((current_price - self.last_buy_price) / self.last_buy_price) * 100
             
@@ -243,6 +289,11 @@ class GridTradingStrategy:
                 price_change = current_price - self.last_buy_price
                 self.logger.info(f"🔴 SELL SIGNAL: Price rose {price_rise:.2f}% (+${price_change:,.2f}) from ${self.last_buy_price:,.2f} to ${current_price:,.2f}")
                 self.logger.info(f"Rise threshold met: {price_rise:.2f}% >= {self.sell_threshold}%")
+                
+                # Reset trailing stop for next trade
+                if self.use_trailing_stop:
+                    self.highest_price_since_buy = None
+                
                 return 'SELL'
             else:
                 # Price hasn't risen enough yet
