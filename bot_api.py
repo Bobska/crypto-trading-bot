@@ -115,7 +115,14 @@ async def get_stats():
         # Calculate stats from trade history in logs
         trades = parse_trade_history()
         total_trades = len(trades)
-        wins = sum(1 for t in trades if t.get('result', '').startswith('+'))
+        
+        # Count wins (trades with + in result)
+        wins = 0
+        for t in trades:
+            result = t.get('result')
+            if result and '+' in str(result):
+                wins += 1
+        
         losses = total_trades - wins
         win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
         
@@ -128,6 +135,9 @@ async def get_stats():
             "last_sell_price": state.get("last_sell_price")
         }
     except Exception as e:
+        import traceback
+        print(f"Error in get_stats: {str(e)}")
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error getting stats: {str(e)}")
 
 def parse_trade_history() -> List[Dict]:
