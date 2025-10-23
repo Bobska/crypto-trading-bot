@@ -58,6 +58,29 @@ class TradingBot:
         
         # Load saved state if it exists
         self.load_state()
+        
+        # Verify position matches actual balance
+        balance = self.exchange.get_balance()
+        
+        if balance is not None:
+            # Check if actual holdings match saved position
+            btc_balance = balance.get('BTC', 0.0)
+            
+            if btc_balance > 0.0001 and self.position == 'USDT':
+                # Have BTC but state says USDT - override to BTC
+                self.position = 'BTC'
+                self.logger.warning(f"🔍 Balance check: Detected BTC holdings ({btc_balance:.6f}), overriding position to BTC")
+                
+            elif btc_balance <= 0.0001 and self.position == 'BTC':
+                # No BTC but state says BTC - override to USDT
+                self.position = 'USDT'
+                self.logger.warning(f"🔍 Balance check: No BTC detected ({btc_balance:.6f}), overriding position to USDT")
+            
+            # Save corrected state
+            self.save_state()
+        
+        # Log final confirmed position
+        self.logger.info(f"Starting with position: {self.position}")
     
     def save_state(self) -> None:
         """
