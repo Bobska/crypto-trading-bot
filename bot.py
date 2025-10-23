@@ -110,6 +110,7 @@ class TradingBot:
         
         Restores position and strategy prices from previous session.
         If no saved state exists, starts fresh with default values.
+        Estimates buy price from current market price if holding BTC without reference.
         """
         try:
             with open('bot_state.json', 'r') as f:
@@ -117,10 +118,23 @@ class TradingBot:
             
             # Restore state
             self.position = state.get('position', 'USDT')
-            self.strategy.last_buy_price = state.get('last_buy_price', 0.0)
-            self.strategy.last_sell_price = state.get('last_sell_price', 0.0)
+            self.strategy.last_buy_price = state.get('last_buy_price') or 0.0
+            self.strategy.last_sell_price = state.get('last_sell_price') or 0.0
             
-            self.logger.info(f"State loaded - Position: {self.position}, Last Buy: ${self.strategy.last_buy_price:,.2f}, Last Sell: ${self.strategy.last_sell_price:,.2f}")
+            # If holding BTC but no buy price recorded, estimate from current price
+            if self.position == 'BTC' and (self.strategy.last_buy_price is None or self.strategy.last_buy_price == 0.0):
+                current_price = self.exchange.get_current_price(self.symbol)
+                if current_price:
+                    self.strategy.last_buy_price = current_price
+                    self.logger.warning(f"⚠️ No buy price found, estimating from current price: ${current_price:,.2f}")
+                    self.logger.warning(f"⚠️ Profit tracking will be based on this estimated entry price")
+                    # Save the estimated price
+                    self.save_state()
+            
+            # Log loaded state (after estimation)
+            buy_price_str = f"${self.strategy.last_buy_price:,.2f}" if self.strategy.last_buy_price else "None"
+            sell_price_str = f"${self.strategy.last_sell_price:,.2f}" if self.strategy.last_sell_price else "None"
+            self.logger.info(f"State loaded - Position: {self.position}, Last Buy: {buy_price_str}, Last Sell: {sell_price_str}")
             
         except FileNotFoundError:
             self.logger.info("No saved state found, starting fresh")
