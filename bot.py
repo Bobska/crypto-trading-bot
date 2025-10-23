@@ -150,6 +150,20 @@ class TradingBot:
         print(f"Symbol: {self.symbol}")
         print(f"Current Price: {formatted_price}")
         print(f"Position: {self.position}")
+        
+        # Show target prices based on current position
+        if self.position == 'BTC' and self.strategy.last_buy_price is not None:
+            # Holding BTC - show target sell price
+            target_sell_price = self.strategy.last_buy_price * (1 + self.strategy.sell_threshold / 100)
+            print(f"   Target Sell Price: ${target_sell_price:,.2f} (waiting for {self.strategy.sell_threshold}% gain)")
+        elif self.position == 'USDT' and self.strategy.last_sell_price is not None:
+            # Holding USDT after a sell - show target buy price
+            target_buy_price = self.strategy.last_sell_price * (1 - self.strategy.buy_threshold / 100)
+            print(f"   Target Buy Price: ${target_buy_price:,.2f} (waiting for {self.strategy.buy_threshold}% drop)")
+        elif self.position == 'USDT' and self.strategy.last_sell_price is None:
+            # First time - waiting for initial entry
+            print(f"   Waiting for first buy opportunity at current market price")
+        
         print(f"Balance: ${balance.get('USDT', 0.0):.2f} USDT | {balance.get('BTC', 0.0):.6f} BTC")
         print(f"Stats: {stats['total_trades']} trades | {stats['wins']} wins | {stats['losses']} losses | {stats['win_rate']:.1f}% win rate")
         print("=" * 60)
