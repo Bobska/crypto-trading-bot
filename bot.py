@@ -2,6 +2,7 @@
 Trading Bot Module
 Main trading bot that coordinates exchange, strategy, and AI advisor
 """
+import json
 import time
 import traceback
 from datetime import datetime, timedelta
@@ -54,6 +55,55 @@ class TradingBot:
         self.logger.info(f"Check interval: {check_interval} seconds")
         self.logger.info(f"Starting position: {self.position}")
         self.logger.info(f"Price alert threshold: {self.price_alert_threshold}%")
+        
+        # Load saved state if it exists
+        self.load_state()
+    
+    def save_state(self) -> None:
+        """
+        Save bot state to JSON file for persistence across restarts
+        
+        Saves current position and strategy prices to allow resuming
+        trading from the same state after bot restart.
+        """
+        try:
+            state = {
+                'position': self.position,
+                'last_buy_price': self.strategy.last_buy_price,
+                'last_sell_price': self.strategy.last_sell_price
+            }
+            
+            with open('bot_state.json', 'w') as f:
+                json.dump(state, f, indent=2)
+            
+            self.logger.info("State saved")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to save state: {e}")
+    
+    def load_state(self) -> None:
+        """
+        Load bot state from JSON file if it exists
+        
+        Restores position and strategy prices from previous session.
+        If no saved state exists, starts fresh with default values.
+        """
+        try:
+            with open('bot_state.json', 'r') as f:
+                state = json.load(f)
+            
+            # Restore state
+            self.position = state.get('position', 'USDT')
+            self.strategy.last_buy_price = state.get('last_buy_price', 0.0)
+            self.strategy.last_sell_price = state.get('last_sell_price', 0.0)
+            
+            self.logger.info(f"State loaded - Position: {self.position}, Last Buy: ${self.strategy.last_buy_price:,.2f}, Last Sell: ${self.strategy.last_sell_price:,.2f}")
+            
+        except FileNotFoundError:
+            self.logger.info("No saved state found, starting fresh")
+        except Exception as e:
+            self.logger.error(f"Failed to load state: {e}")
+            self.logger.info("Starting with default state")
     
     def print_status(self, current_price: float) -> None:
         """
@@ -105,6 +155,10 @@ class TradingBot:
                 self.strategy.record_buy(price)
                 self.position = 'BTC'
                 self.logger.info(f"✅ BUY order successful - Position changed to BTC")
+                
+                # Save state after successful trade
+                self.save_state()
+                
                 return True
             else:
                 # Log failure
@@ -123,6 +177,10 @@ class TradingBot:
                 self.strategy.record_sell(price)
                 self.position = 'USDT'
                 self.logger.info(f"✅ SELL order successful - Position changed to USDT")
+                
+                # Save state after successful trade
+                self.save_state()
+                
                 return True
             else:
                 # Log failure
@@ -298,6 +356,9 @@ Should I pause trading during this volatile period?"""
         Stop the trading bot gracefully and send daily summary to AI
         """
         self.running = False
+        
+        # Save state before shutdown
+        self.save_state()
         
         # Get final statistics and balance
         final_stats = self.strategy.get_stats()
