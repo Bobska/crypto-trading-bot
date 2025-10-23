@@ -28,7 +28,7 @@ class GridTradingStrategy:
     - May miss opportunities in fast-moving markets
     """
     
-    def __init__(self, buy_threshold: float, sell_threshold: float, trade_amount: float):
+    def __init__(self, buy_threshold: float, sell_threshold: float, trade_amount: float, stop_loss_percentage: float = 3.0):
         """
         Initialize Grid Trading Strategy
         
@@ -36,6 +36,7 @@ class GridTradingStrategy:
             buy_threshold: Percentage drop to trigger buy orders (e.g., 1.0 for 1%)
             sell_threshold: Percentage rise to trigger sell orders (e.g., 1.0 for 1%)
             trade_amount: Amount to trade per order (base currency)
+            stop_loss_percentage: Maximum loss percentage before emergency sell (default: 3.0%)
         """
         self.logger = setup_logger('GridTradingStrategy')
         
@@ -43,6 +44,7 @@ class GridTradingStrategy:
         self.buy_threshold = buy_threshold
         self.sell_threshold = sell_threshold
         self.trade_amount = trade_amount
+        self.stop_loss_percentage = stop_loss_percentage
         
         # Price tracking for grid logic
         self.last_buy_price: Optional[float] = None
@@ -58,6 +60,7 @@ class GridTradingStrategy:
         self.logger.info(f"Buy threshold: {self.buy_threshold}%")
         self.logger.info(f"Sell threshold: {self.sell_threshold}%")
         self.logger.info(f"Trade amount: {self.trade_amount}")
+        self.logger.info(f"Stop loss: {self.stop_loss_percentage}%")
         self.logger.info("Strategy ready for execution")
     
     def get_strategy_stats(self) -> dict:
@@ -181,6 +184,34 @@ class GridTradingStrategy:
             # Unknown position - return HOLD as default
             self.logger.warning(f"Unknown position '{position}' - valid positions are 'USDT' or 'BTC'")
             return 'HOLD'
+    
+    def check_stop_loss(self, current_price: float, position: str) -> bool:
+        """
+        Check if stop-loss threshold has been exceeded
+        
+        Args:
+            current_price: Current market price
+            position: Current position ('USDT' or 'BTC')
+            
+        Returns:
+            True if stop-loss triggered (emergency sell needed), False otherwise
+        """
+        # Only check stop-loss when holding BTC
+        if position != 'BTC' or self.last_buy_price is None:
+            return False
+        
+        # Calculate current loss percentage
+        loss_percent = ((self.last_buy_price - current_price) / self.last_buy_price) * 100
+        
+        # Check if loss exceeds stop-loss threshold
+        if loss_percent >= self.stop_loss_percentage:
+            loss_amount = self.last_buy_price - current_price
+            self.logger.warning(f"⚠️ STOP LOSS TRIGGERED: Loss {loss_percent:.2f}% (-${loss_amount:,.2f})")
+            self.logger.warning(f"⚠️ Buy price: ${self.last_buy_price:,.2f}, Current: ${current_price:,.2f}")
+            self.logger.warning(f"⚠️ Loss threshold exceeded: {loss_percent:.2f}% >= {self.stop_loss_percentage}%")
+            return True
+        
+        return False
     
     def record_buy(self, price: float) -> None:
         """

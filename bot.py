@@ -166,14 +166,22 @@ class TradingBot:
                     time.sleep(self.check_interval)
                     continue
                 
-                # 2. Get trading signal
+                # 2. Check stop-loss first (emergency sell if triggered)
+                if self.strategy.check_stop_loss(current_price, self.position):
+                    self.logger.warning("⚠️ STOP LOSS: Executing emergency sell")
+                    self.print_status(current_price)
+                    self.execute_trade('SELL', current_price)
+                    time.sleep(self.check_interval)
+                    continue
+                
+                # 3. Get trading signal
                 signal = self.strategy.analyze(current_price, self.position)
                 
-                # 3. Print status every 10 iterations OR when signal != 'HOLD'
+                # 4. Print status every 10 iterations OR when signal != 'HOLD'
                 if iteration % 10 == 0 or signal != 'HOLD':
                     self.print_status(current_price)
                 
-                # 4. Execute trade if signal is not HOLD
+                # 5. Execute trade if signal is not HOLD
                 if signal != 'HOLD':
                     # Get current stats
                     stats = self.strategy.get_stats()
@@ -184,7 +192,7 @@ class TradingBot:
                     # Execute the trade
                     self.execute_trade(signal, current_price)
                 
-                # 5. Sleep for check interval
+                # 6. Sleep for check interval
                 time.sleep(self.check_interval)
                 
         except KeyboardInterrupt:
