@@ -45,7 +45,14 @@ class GridTradingStrategy:
         self.buy_threshold = buy_threshold
         self.sell_threshold = sell_threshold
         self.trade_amount = trade_amount
+        self.base_trade_amount = trade_amount  # Store original amount
         self.stop_loss_percentage = stop_loss_percentage
+        
+        # Dynamic position sizing parameters
+        self.min_position_size = trade_amount * 0.5  # 50% of base amount
+        self.max_position_size = trade_amount * 2.0  # 200% of base amount
+        self.consecutive_wins = 0
+        self.consecutive_losses = 0
         
         # Price tracking for grid logic
         self.last_buy_price: Optional[float] = None
@@ -122,6 +129,43 @@ class GridTradingStrategy:
         self.sell_threshold = sell_threshold
         
         self.logger.info(f"Thresholds updated - Buy: {old_buy}% -> {buy_threshold}%, Sell: {old_sell}% -> {sell_threshold}%")
+    
+    def adjust_position_size(self, balance: dict, win_rate: float) -> None:
+        """
+        Dynamically adjust position size based on recent performance
+        
+        Risk Management Principles:
+        - Increase position size after consistent wins (confidence building)
+        - Decrease position size after consistent losses (capital preservation)
+        - Never exceed maximum or fall below minimum limits
+        
+        Args:
+            balance: Current account balance dictionary
+            win_rate: Current win rate percentage
+        """
+        old_amount = self.trade_amount
+        
+        # Increase position size after 3+ consecutive wins
+        if self.consecutive_wins >= 3:
+            new_amount = min(self.trade_amount * 1.2, self.max_position_size)
+            if new_amount != self.trade_amount:
+                self.trade_amount = new_amount
+                self.logger.info(f"📈 Position size INCREASED: {old_amount:.6f} -> {new_amount:.6f} BTC (after {self.consecutive_wins} consecutive wins)")
+                self.logger.info(f"📈 Win rate: {win_rate:.1f}% - Growing confidence")
+        
+        # Decrease position size after 3+ consecutive losses
+        elif self.consecutive_losses >= 3:
+            new_amount = max(self.trade_amount * 0.8, self.min_position_size)
+            if new_amount != self.trade_amount:
+                self.trade_amount = new_amount
+                self.logger.warning(f"📉 Position size DECREASED: {old_amount:.6f} -> {new_amount:.6f} BTC (after {self.consecutive_losses} consecutive losses)")
+                self.logger.warning(f"📉 Win rate: {win_rate:.1f}% - Preserving capital")
+        
+        # Log if at limits
+        if self.trade_amount >= self.max_position_size:
+            self.logger.info(f"⚠️ Position size at MAXIMUM: {self.trade_amount:.6f} BTC")
+        elif self.trade_amount <= self.min_position_size:
+            self.logger.warning(f"⚠️ Position size at MINIMUM: {self.trade_amount:.6f} BTC")
     
     def analyze(self, current_price: float, position: str) -> str:
         """
@@ -269,13 +313,19 @@ class GridTradingStrategy:
             if profit_loss_pct > 0:
                 # Profitable trade
                 self.wins += 1
+                self.consecutive_wins += 1
+                self.consecutive_losses = 0  # Reset loss streak
                 self.logger.info(f"📝 SELL RECORDED: ${price:,.2f} (Trade #{self.total_trades})")
                 self.logger.info(f"✅ PROFIT: +{profit_loss_pct:.2f}% (+${profit_loss_amount:,.2f}) - Buy: ${self.last_buy_price:,.2f} -> Sell: ${price:,.2f}")
+                self.logger.info(f"🔥 Consecutive wins: {self.consecutive_wins}")
             else:
                 # Loss or break-even trade
                 self.losses += 1
+                self.consecutive_losses += 1
+                self.consecutive_wins = 0  # Reset win streak
                 self.logger.info(f"📝 SELL RECORDED: ${price:,.2f} (Trade #{self.total_trades})")
                 self.logger.info(f"❌ LOSS: {profit_loss_pct:.2f}% (${profit_loss_amount:,.2f}) - Buy: ${self.last_buy_price:,.2f} -> Sell: ${price:,.2f}")
+                self.logger.warning(f"⚠️ Consecutive losses: {self.consecutive_losses}")
         else:
             # No buy price recorded (shouldn't happen in normal operation)
             self.logger.info(f"📝 SELL RECORDED: ${price:,.2f} (Trade #{self.total_trades})")

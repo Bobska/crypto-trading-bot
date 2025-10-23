@@ -237,6 +237,12 @@ class TradingBot:
                 self.position = 'USDT'
                 self.logger.info(f"✅ SELL order successful - Position changed to USDT")
                 
+                # Adjust position size based on performance
+                balance = self.exchange.get_balance()
+                stats = self.strategy.get_stats()
+                if balance and stats:
+                    self.strategy.adjust_position_size(balance, stats['win_rate'])
+                
                 # Save state after successful trade
                 self.save_state()
                 
