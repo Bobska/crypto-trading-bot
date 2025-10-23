@@ -96,7 +96,7 @@ class TradingBot:
     
     def _broadcast_update(self, message_type: str, data: dict) -> None:
         """
-        Send update to all WebSocket clients via bot_api
+        Send update to all WebSocket clients via bot_api using specialized broadcast methods
         
         Args:
             message_type: Type of update (e.g., 'trade_executed', 'price_update', 'status_change')
@@ -106,12 +106,21 @@ class TradingBot:
             import sys
             if 'bot_api' in sys.modules:
                 from bot_api import manager
-                # Run async broadcast in sync context
-                asyncio.run(manager.broadcast({
-                    "type": message_type,
-                    "data": data,
-                    "timestamp": datetime.now().isoformat()
-                }))
+                
+                # Use specialized broadcast methods for better formatting
+                if message_type == 'trade_executed':
+                    asyncio.run(manager.broadcast_trade(data))
+                elif message_type == 'price_update':
+                    asyncio.run(manager.broadcast_price(data))
+                elif message_type == 'status_change':
+                    asyncio.run(manager.broadcast_status(data))
+                else:
+                    # Fallback to generic broadcast
+                    asyncio.run(manager.broadcast({
+                        "type": message_type,
+                        "data": data,
+                        "timestamp": datetime.now().isoformat()
+                    }))
         except Exception as e:
             self.logger.debug(f"WebSocket broadcast failed (API may not be running): {e}")
     

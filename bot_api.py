@@ -14,22 +14,85 @@ from typing import Optional, Dict, List
 
 # WebSocket Connection Manager
 class ConnectionManager:
-    """Manages WebSocket connections and broadcasts messages"""
+    """Enhanced WebSocket connection manager with heartbeat and tracking"""
     
     def __init__(self):
         self.active_connections: List[WebSocket] = []
+        self.connection_info: Dict[WebSocket, dict] = {}
+        self.last_price: Optional[float] = None
+        self.heartbeat_task: Optional[asyncio.Task] = None
     
     async def connect(self, websocket: WebSocket):
-        """Accept and add WebSocket connection"""
+        """Accept and add WebSocket connection with tracking"""
         await websocket.accept()
         self.active_connections.append(websocket)
+        
+        # Track connection info
+        self.connection_info[websocket] = {
+            'connected_at': datetime.now(),
+            'messages_sent': 0,
+            'last_activity': datetime.now()
+        }
+        
         print(f"✅ WebSocket connected. Total connections: {len(self.active_connections)}")
+        
+        # Start heartbeat if not already running
+        if not self.heartbeat_task or self.heartbeat_task.done():
+            self.heartbeat_task = asyncio.create_task(self.send_heartbeat())
     
     def disconnect(self, websocket: WebSocket):
-        """Remove WebSocket connection"""
+        """Remove WebSocket connection and cleanup tracking"""
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-            print(f"❌ WebSocket disconnected. Total connections: {len(self.active_connections)}")
+            
+            # Log statistics before removing
+            if websocket in self.connection_info:
+                info = self.connection_info[websocket]
+                duration = (datetime.now() - info['connected_at']).total_seconds()
+                print(f"❌ WebSocket disconnected after {duration:.1f}s. " 
+                      f"Messages sent: {info['messages_sent']}. "
+                      f"Remaining connections: {len(self.active_connections)}")
+                del self.connection_info[websocket]
+            else:
+                print(f"❌ WebSocket disconnected. Total connections: {len(self.active_connections)}")
+    
+    async def send_heartbeat(self):
+        """Send periodic heartbeat to keep connections alive"""
+        while self.active_connections:
+            try:
+                await asyncio.sleep(30)  # Every 30 seconds
+                
+                if not self.active_connections:
+                    break
+                
+                # Send ping to all connections
+                dead_connections = []
+                for connection in self.active_connections:
+                    try:
+                        await connection.send_json({
+                            'type': 'heartbeat',
+                            'timestamp': datetime.now().isoformat()
+                        })
+                        
+                        # Update activity tracking
+                        if connection in self.connection_info:
+                            self.connection_info[connection]['last_activity'] = datetime.now()
+                    except Exception as e:
+                        print(f"❤️‍🩹 Heartbeat failed: {e}")
+                        dead_connections.append(connection)
+                
+                # Clean up dead connections
+                for connection in dead_connections:
+                    self.disconnect(connection)
+                
+                if self.active_connections:
+                    print(f"💓 Heartbeat sent to {len(self.active_connections)} clients")
+                    
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"Heartbeat error: {e}")
+                await asyncio.sleep(30)
     
     async def broadcast(self, message: dict):
         """Broadcast message to all connected clients"""
@@ -44,6 +107,11 @@ class ConnectionManager:
         for connection in self.active_connections:
             try:
                 await connection.send_text(message_json)
+                
+                # Update message counter
+                if connection in self.connection_info:
+                    self.connection_info[connection]['messages_sent'] += 1
+                    self.connection_info[connection]['last_activity'] = datetime.now()
             except Exception as e:
                 print(f"Error sending to WebSocket: {e}")
                 dead_connections.append(connection)
@@ -55,6 +123,101 @@ class ConnectionManager:
         # Log broadcast
         message_type = message.get('type', 'unknown')
         print(f"📡 Broadcast to {len(self.active_connections)} clients: {message_type}")
+    
+    async def broadcast_trade(self, trade_data: dict):
+        """Broadcast trade execution with formatted message"""
+        action = trade_data.get('action', 'TRADE')
+        price = trade_data.get('price', 0)
+        amount = trade_data.get('amount', 0)
+        position = trade_data.get('position', 'UNKNOWN')
+        profit_pct = trade_data.get('profit_pct', 0)
+        
+        # Add emoji based on action
+        emoji = '🟢' if action == 'BUY' else '🔴' if action == 'SELL' else '⚪'
+        
+        # Format message
+        message = {
+            'type': 'trade_executed',
+            'data': {
+                'action': action,
+                'price': price,
+                'amount': amount,
+                'position': position,
+                'profit_pct': profit_pct,
+                'emoji': emoji,
+                'timestamp': datetime.now().isoformat(),
+                'message': f"{emoji} {action} {amount} BTC at ${price:,.2f}"
+            }
+        }
+        
+        await self.broadcast(message)
+        print(f"💰 Trade broadcast: {action} at ${price:,.2f}")
+    
+    async def broadcast_price(self, price_data: dict):
+        """Broadcast price update only if changed significantly (>0.1%)"""
+        price = price_data.get('price', 0)
+        symbol = price_data.get('symbol', 'BTC/USDT')
+        
+        # Check if price changed significantly
+        if self.last_price is not None:
+            price_change_pct = abs((price - self.last_price) / self.last_price * 100)
+            if price_change_pct < 0.1:
+                # Skip broadcast if change is < 0.1%
+                return
+        
+        # Update last price
+        self.last_price = price
+        
+        # Format message
+        message = {
+            'type': 'price_update',
+            'data': {
+                'price': price,
+                'symbol': symbol,
+                'timestamp': datetime.now().isoformat(),
+                'formatted_price': f"${price:,.2f}"
+            }
+        }
+        
+        await self.broadcast(message)
+    
+    async def broadcast_status(self, status_data: dict):
+        """Broadcast bot status with formatted message"""
+        status = status_data.get('status', 'unknown')
+        position = status_data.get('position', 'NONE')
+        balance = status_data.get('balance', {})
+        
+        # Format message
+        message = {
+            'type': 'status_change',
+            'data': {
+                'status': status,
+                'position': position,
+                'balance': balance,
+                'bot_running': status == 'running',
+                'timestamp': datetime.now().isoformat()
+            }
+        }
+        
+        await self.broadcast(message)
+        print(f"⚡ Status broadcast: {status.upper()}")
+    
+    def get_connection_stats(self) -> dict:
+        """Get statistics about all connections"""
+        stats = {
+            'total_connections': len(self.active_connections),
+            'connections': []
+        }
+        
+        for ws, info in self.connection_info.items():
+            duration = (datetime.now() - info['connected_at']).total_seconds()
+            stats['connections'].append({
+                'connected_for': f"{duration:.1f}s",
+                'messages_sent': info['messages_sent'],
+                'last_activity': info['last_activity'].isoformat()
+            })
+        
+        return stats
 
 # Create FastAPI app
 app = FastAPI(title="Trading Bot API", version="1.0.0")
@@ -355,6 +518,11 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         manager.disconnect(websocket)
 
+@app.get("/api/connections")
+async def get_connections():
+    """Get WebSocket connection statistics"""
+    return manager.get_connection_stats()
+
 @app.get("/")
 async def root():
     """API root endpoint"""
@@ -365,8 +533,10 @@ async def root():
             "status": "/api/status",
             "stats": "/api/stats",
             "recent_trades": "/api/trades/recent",
+            "connections": "/api/connections",
             "start_bot": "POST /api/bot/start",
-            "stop_bot": "POST /api/bot/stop"
+            "stop_bot": "POST /api/bot/stop",
+            "websocket": "ws://localhost:8002/ws"
         }
     }
 
