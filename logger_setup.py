@@ -6,13 +6,16 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
-def setup_logger(name: str = 'TradingBot') -> logging.Logger:
+def setup_logger(name: str = 'TradingBot', log_suffix: Optional[str] = None) -> logging.Logger:
     """
     Set up a logger that writes to both console and file
     
     Args:
         name: Name of the logger (default: 'TradingBot')
+        log_suffix: Optional suffix for log filename (e.g., 'BTC' creates trades_BTC.log)
+                   If None, uses date-based filename (trades_YYYYMMDD.log)
         
     Returns:
         Configured logger instance
@@ -21,8 +24,9 @@ def setup_logger(name: str = 'TradingBot') -> logging.Logger:
     logs_dir = Path('logs')
     logs_dir.mkdir(exist_ok=True)
     
-    # Create logger
-    logger = logging.getLogger(name)
+    # Create unique logger name to avoid conflicts between bots
+    logger_key = f"{name}_{log_suffix}" if log_suffix else name
+    logger = logging.getLogger(logger_key)
     
     # Only configure if logger doesn't have handlers (avoid duplicate handlers)
     if not logger.handlers:
@@ -40,9 +44,14 @@ def setup_logger(name: str = 'TradingBot') -> logging.Logger:
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
         
-        # File handler with date-based filename
-        current_date = datetime.now().strftime('%Y%m%d')
-        log_filename = logs_dir / f'trades_{current_date}.log'
+        # File handler with custom or date-based filename
+        if log_suffix:
+            # Use custom suffix (e.g., trades_BTC.log, trades_ETH.log)
+            log_filename = logs_dir / f'trades_{log_suffix}.log'
+        else:
+            # Use date-based filename (e.g., trades_20251023.log)
+            current_date = datetime.now().strftime('%Y%m%d')
+            log_filename = logs_dir / f'trades_{current_date}.log'
         
         file_handler = logging.FileHandler(log_filename, encoding='utf-8')
         file_handler.setLevel(logging.INFO)
