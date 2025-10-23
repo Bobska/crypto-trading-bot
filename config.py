@@ -1,18 +1,47 @@
 """
 Configuration module for Crypto Trading Bot
 Loads environment variables and validates required settings
+Supports multiple trading profiles (conservative, balanced, aggressive)
 """
 import os
+import sys
+import argparse
+from pathlib import Path
 from dotenv import load_dotenv
 from typing import Optional
 
-# Load environment variables from .env file
-load_dotenv()
+# Parse command line arguments for profile selection
+def get_profile_from_args() -> str:
+    """Parse command line arguments to get profile name"""
+    parser = argparse.ArgumentParser(description='Crypto Trading Bot')
+    parser.add_argument('--profile', type=str, default='balanced',
+                       choices=['conservative', 'balanced', 'aggressive'],
+                       help='Trading profile to use (default: balanced)')
+    
+    # Parse only known args to avoid conflicts with other scripts
+    args, _ = parser.parse_known_args()
+    return args.profile
+
+# Get active profile
+ACTIVE_PROFILE = get_profile_from_args()
+
+# Load environment variables from profile-specific .env file
+profile_path = Path('profiles') / f'{ACTIVE_PROFILE}.env'
+
+if profile_path.exists():
+    load_dotenv(profile_path)
+    print(f"📋 Loaded profile: {ACTIVE_PROFILE}")
+else:
+    # Fallback to default .env if profile doesn't exist
+    load_dotenv()
+    print(f"⚠️  Profile file not found: {profile_path}")
+    print(f"   Using default .env file")
+    ACTIVE_PROFILE = 'default'
 
 # Safety flag - always use testnet for development
 TESTNET = True
 
-def get_env_var(key: str, default: Optional[str] = None, required: bool = False) -> str:
+def get_env_var(key: str, default: Optional[str] = None, required: bool = False) -> Optional[str]:
     """Get environment variable with optional default and validation"""
     value = os.getenv(key, default)
     
@@ -42,20 +71,24 @@ def get_int_env(key: str, default: int = 0) -> int:
 
 # API Configuration - Required
 try:
-    BINANCE_API_KEY = get_env_var("BINANCE_API_KEY", required=True)
-    BINANCE_SECRET = get_env_var("BINANCE_SECRET", required=True)
+    api_key = get_env_var("BINANCE_API_KEY", required=True)
+    secret = get_env_var("BINANCE_SECRET", required=True)
+    BINANCE_API_KEY: str = api_key if api_key else ""
+    BINANCE_SECRET: str = secret if secret else ""
 except ValueError as e:
     raise ValueError(f"Missing API credentials: {e}. Please check your .env file and ensure API keys are set.")
 
 # Trading Settings with type conversion and defaults
-SYMBOL = get_env_var("SYMBOL", default="BTC/USDT")
+symbol_val = get_env_var("SYMBOL", default="BTC/USDT")
+SYMBOL: str = symbol_val if symbol_val else "BTC/USDT"
 BUY_THRESHOLD = get_float_env("BUY_THRESHOLD", default=1.0)
 SELL_THRESHOLD = get_float_env("SELL_THRESHOLD", default=1.0)
 TRADE_AMOUNT = get_float_env("TRADE_AMOUNT", default=0.001)
 CHECK_INTERVAL = get_int_env("CHECK_INTERVAL", default=30)
 
 # AI Service Settings
-AI_API_URL = get_env_var("AI_API_URL", default="http://localhost:8000")
+ai_url = get_env_var("AI_API_URL", default="http://localhost:8000")
+AI_API_URL: str = ai_url if ai_url else "http://localhost:8000"
 AI_ENABLED = get_bool_env("AI_ENABLED", default=True)
 
 # Validate numeric ranges
@@ -73,13 +106,20 @@ if CHECK_INTERVAL < 1:
 
 # Print configuration status
 mode = "TESTNET" if TESTNET else "LIVE TRADING"
+profile_desc = get_env_var("PROFILE_DESCRIPTION", default="Custom configuration")
+
+print(f"\n{'='*60}")
 print(f"Crypto Trading Bot Configuration Loaded")
+print(f"{'='*60}")
+print(f"Profile: {ACTIVE_PROFILE.upper()}")
+print(f"Description: {profile_desc}")
 print(f"Mode: {mode}")
 print(f"Symbol: {SYMBOL}")
 print(f"Check Interval: {CHECK_INTERVAL}s")
 print(f"Buy/Sell Thresholds: {BUY_THRESHOLD}%/{SELL_THRESHOLD}%")
-print(f"Trade Amount: {TRADE_AMOUNT}")
+print(f"Trade Amount: {TRADE_AMOUNT} BTC")
 print(f"AI Enabled: {AI_ENABLED}")
+print(f"{'='*60}\n")
 
 if TESTNET:
     print("TESTNET MODE - No real money will be traded")

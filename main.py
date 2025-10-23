@@ -33,6 +33,7 @@ def main():
         # Setup logger
         logger = setup_logger('Main')
         logger.info("Initializing Crypto Trading Bot...")
+        logger.info(f"Active Profile: {config.ACTIVE_PROFILE.upper()}")
         
         # Create exchange instance
         logger.info("Connecting to Binance Testnet...")
