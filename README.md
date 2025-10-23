@@ -113,6 +113,38 @@ The monitor displays:
 
 **Tip:** Run `monitor.py` in a separate terminal while the bot is running!
 
+### Viewing Performance Dashboard
+
+Get comprehensive analytics with visual charts:
+
+```bash
+python dashboard.py
+```
+
+The dashboard shows:
+- Total P&L and win/loss statistics
+- Best and worst trades with details
+- Hourly trading activity bar chart
+- Complete trading history analysis
+- Color-coded profit/loss display
+- Auto-refreshes every 5 minutes
+
+### Exporting Trade History
+
+Export trades to CSV for Excel analysis:
+
+```bash
+python export_trades.py
+```
+
+Generates `trades_history.csv` with:
+- Buy/sell dates and times
+- Entry and exit prices
+- P&L in dollars and percentages
+- Win/Loss status per trade
+- Trade duration in minutes
+- Complete performance summary
+
 ### What to Expect
 
 The bot will:
@@ -180,11 +212,14 @@ crypto-trading-bot/
 ├── bot.py               # TradingBot class (coordination)
 ├── exchange.py          # BinanceTestnet class (API integration)
 ├── strategy.py          # GridTradingStrategy class
+├── indicators.py        # Technical analysis indicators
 ├── ai_advisor.py        # AIAdvisor class (optional)
 ├── config.py            # Configuration loader
 ├── logger_setup.py      # Logging configuration
 ├── banner.py            # Startup banner display
 ├── monitor.py           # Real-time monitoring utility
+├── dashboard.py         # Performance analytics dashboard
+├── export_trades.py     # CSV trade history export
 ├── requirements.txt     # Python dependencies
 ├── .env                 # Environment variables (create this)
 ├── .gitignore          # Git ignore rules
