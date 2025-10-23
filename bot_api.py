@@ -51,6 +51,10 @@ class ConnectionManager:
         # Clean up dead connections
         for connection in dead_connections:
             self.disconnect(connection)
+        
+        # Log broadcast
+        message_type = message.get('type', 'unknown')
+        print(f"📡 Broadcast to {len(self.active_connections)} clients: {message_type}")
 
 # Create FastAPI app
 app = FastAPI(title="Trading Bot API", version="1.0.0")
@@ -366,6 +370,9 @@ async def root():
         }
     }
 
+# Export for use by other modules
+__all__ = ['app', 'manager']
+
 if __name__ == "__main__":
     import uvicorn
     
@@ -374,6 +381,7 @@ if __name__ == "__main__":
     print("="*60)
     print("Server: http://localhost:8002")
     print("Docs: http://localhost:8002/docs")
+    print("WebSocket: ws://localhost:8002/ws")
     print("="*60 + "\n")
     
     # Run on port 8002 to avoid conflict with bot's main port
