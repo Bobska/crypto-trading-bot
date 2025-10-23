@@ -275,6 +275,144 @@ This project is for educational purposes only. Use at your own risk.
 - Try lowering BUY_THRESHOLD and SELL_THRESHOLD to 0.5%
 - Review logs in `logs/` directory for details
 
+### Bot buys when it should sell (Position Mismatch)
+
+**Symptoms:**
+- Bot holds BTC but tries to buy more
+- Bot holds USDT but tries to sell
+- Target price display is wrong
+
+**Solutions:**
+
+1. **Check bot_state.json exists and has correct position:**
+   ```powershell
+   Get-Content bot_state.json
+   ```
+   Should show:
+   ```json
+   {
+     "position": "BTC",     # or "USDT"
+     "last_buy_price": 107000.0,
+     "last_sell_price": 108071.39
+   }
+   ```
+
+2. **Verify balance detection logs:**
+   Check `logs/` for messages like:
+   ```
+   🔍 Balance check: Detected BTC holdings (1.011000), overriding position to BTC
+   State loaded - Position: BTC, Last Buy: $107,000.00
+   Starting with position: BTC
+   ```
+
+3. **Check actual balance:**
+   ```powershell
+   python -c "from exchange import BinanceTestnet; import config; e = BinanceTestnet(config.BINANCE_API_KEY, config.BINANCE_SECRET); print(e.get_balance())"
+   ```
+
+4. **Reset state if corrupted:**
+   ```powershell
+   Remove-Item bot_state.json -Force
+   python main.py  # Will create fresh state based on balance
+   ```
+
+5. **Verify position matches actual BTC balance:**
+   - If BTC balance > 0.0001: Position should be "BTC"
+   - If BTC balance ≤ 0.0001: Position should be "USDT"
+
+### State file not saving
+
+**Symptoms:**
+- Bot forgets position after restart
+- No bot_state.json file created
+- Same trades repeat after restart
+
+**Solutions:**
+
+1. **Check write permissions:**
+   ```powershell
+   # Verify you can create files in the directory
+   "test" | Out-File -FilePath test.txt
+   Remove-Item test.txt
+   ```
+
+2. **Check logs for "State saved" message:**
+   ```
+   2025-10-23 15:06:18 - TradingBot - INFO - State saved
+   ```
+   Should appear after:
+   - Bot initialization
+   - Every successful trade
+   - Bot shutdown
+
+3. **Verify save_state() is called:**
+   - Check `bot.py` has `self.save_state()` in:
+     - End of `__init__()` method
+     - After successful buy in `execute_trade()`
+     - After successful sell in `execute_trade()`
+     - In `stop()` method before shutdown
+
+4. **Check for error messages:**
+   Look for: `Failed to save state: <error message>`
+
+### Position detection wrong
+
+**Symptoms:**
+- Bot detects wrong position on startup
+- "No BTC detected" but you have BTC
+- "Detected BTC holdings" but you have none
+
+**Solutions:**
+
+1. **Verify 0.0001 threshold is reasonable:**
+   - 0.0001 BTC ≈ $10 (at $100k BTC)
+   - Balances below this are considered "dust" and treated as zero
+   - Adjust threshold in `bot.py` if trading smaller amounts
+
+2. **Check balance detection logs:**
+   Look for warnings in logs:
+   ```
+   🔍 Balance check: Detected BTC holdings (1.011000), overriding position to BTC
+   ```
+   or
+   ```
+   🔍 Balance check: No BTC detected (0.000050), overriding position to USDT
+   ```
+
+3. **Test balance detection:**
+   ```powershell
+   python -c "from exchange import BinanceTestnet; import config; e = BinanceTestnet(config.BINANCE_API_KEY, config.BINANCE_SECRET); b = e.get_balance(); print(f'BTC: {b[\"BTC\"]:.8f}, USDT: {b[\"USDT\"]:.2f}')"
+   ```
+
+4. **Manual state override:**
+   If automatic detection fails, manually set state:
+   ```powershell
+   '{"position": "BTC", "last_buy_price": 107000.0, "last_sell_price": 0.0}' | Set-Content -Path bot_state.json
+   ```
+
+### Target prices not showing
+
+**Symptoms:**
+- Status display missing target price line
+- Shows "Waiting for first buy opportunity" when position is BTC
+
+**Solutions:**
+
+1. **Check last_buy_price or last_sell_price:**
+   ```powershell
+   Get-Content bot_state.json
+   ```
+   - If position is BTC, need `last_buy_price` (not null)
+   - If position is USDT after sell, need `last_sell_price` (not null)
+
+2. **Set reference price manually:**
+   ```powershell
+   # If holding BTC, set a buy price reference
+   '{"position": "BTC", "last_buy_price": 107000.0, "last_sell_price": 0.0}' | Set-Content -Path bot_state.json
+   ```
+
+3. **Restart bot to recalculate targets**
+
 ### AI service errors
 - Make sure AI service is running on correct port
 - Set `AI_ENABLED=false` to run without AI
@@ -284,6 +422,15 @@ This project is for educational purposes only. Use at your own risk.
 - Confirm internet connection is stable
 - Verify Binance Testnet is accessible
 - Check firewall isn't blocking connections
+
+## ✅ State Persistence Summary
+
+After implementing state persistence features:
+- ✅ **Bot remembers position between restarts** - No data loss
+- ✅ **Bot auto-detects position from balance** - Self-healing on startup
+- ✅ **Bot shows target prices for next trade** - Clear visibility
+- ✅ **State persists in bot_state.json file** - Automatic backups
+- ✅ **No more buying when it should sell!** - Position tracking works
 
 ## 📚 Additional Resources
 
