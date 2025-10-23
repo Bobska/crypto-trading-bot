@@ -21,7 +21,7 @@ class TradingBot:
     maintaining position state (USDT or BTC).
     """
     
-    def __init__(self, exchange, strategy, ai_advisor, symbol: str, check_interval: int):
+    def __init__(self, exchange, strategy, ai_advisor, symbol: str, check_interval: int, require_ai_confirmation: bool = False):
         """
         Initialize Trading Bot
         
@@ -31,12 +31,14 @@ class TradingBot:
             ai_advisor: AI advisor instance for trade recommendations
             symbol: Trading pair symbol (e.g., 'BTC/USDT')
             check_interval: Seconds between price checks
+            require_ai_confirmation: If True, requires AI approval before executing trades
         """
         self.exchange = exchange
         self.strategy = strategy
         self.ai_advisor = ai_advisor
         self.symbol = symbol
         self.check_interval = check_interval
+        self.require_ai_confirmation = require_ai_confirmation
         
         # Initialize bot state
         self.position = 'USDT'  # Starting with cash (not holding BTC)
@@ -55,6 +57,7 @@ class TradingBot:
         self.logger.info(f"Check interval: {check_interval} seconds")
         self.logger.info(f"Starting position: {self.position}")
         self.logger.info(f"Price alert threshold: {self.price_alert_threshold}%")
+        self.logger.info(f"AI Confirmation Required: {self.require_ai_confirmation}")
         
         # Load saved state if it exists
         self.load_state()
@@ -330,6 +333,53 @@ Should I pause trading during this volatile period?"""
                 except Exception as e:
                     self.logger.debug(f"Could not get AI volatility advice: {e}")
     
+    def _parse_ai_confirmation(self, ai_response: str) -> bool:
+        """
+        Parse AI response to determine if trade should proceed
+        
+        Looks for positive keywords indicating approval or negative
+        keywords indicating the trade should be avoided.
+        
+        Args:
+            ai_response: AI advisor's response text
+            
+        Returns:
+            True if AI approves the trade, False if AI suggests avoiding it
+        """
+        if not ai_response:
+            return False
+        
+        # Convert to lowercase for case-insensitive matching
+        response_lower = ai_response.lower()
+        
+        # Positive keywords (AI approves trade)
+        positive_keywords = [
+            'yes', 'proceed', 'go ahead', 'good', 'take', 'execute',
+            'approve', 'favorable', 'recommend', 'looks good', 'agree',
+            'positive', 'buy it', 'sell it', 'do it', 'take it'
+        ]
+        
+        # Negative keywords (AI blocks trade)
+        negative_keywords = [
+            'no', 'wait', 'avoid', 'don\'t', 'do not', 'hold off',
+            'pause', 'skip', 'risky', 'caution', 'reconsider',
+            'unfavorable', 'against', 'decline', 'reject'
+        ]
+        
+        # Count matches
+        positive_count = sum(1 for keyword in positive_keywords if keyword in response_lower)
+        negative_count = sum(1 for keyword in negative_keywords if keyword in response_lower)
+        
+        # Log parsing results
+        self.logger.debug(f"AI response parsing: {positive_count} positive, {negative_count} negative keywords")
+        
+        # Decision logic: positive wins if more positive than negative
+        # Default to False (block) if unclear or equal
+        if positive_count > negative_count and positive_count > 0:
+            return True
+        else:
+            return False
+    
     def run(self) -> None:
         """
         Start the trading bot main loop
@@ -397,8 +447,30 @@ Should I pause trading during this volatile period?"""
                     # Get AI recommendation
                     ai_advice = self.ai_advisor.analyze_trade_opportunity(signal, current_price, stats)
                     
-                    # Execute the trade
-                    self.execute_trade(signal, current_price)
+                    # Check if AI confirmation is required
+                    if self.require_ai_confirmation:
+                        if ai_advice is None:
+                            # No AI response, skip trade
+                            self.logger.warning(f"🛑 AI CONFIRMATION: No AI response received, skipping {signal} trade")
+                            time.sleep(self.check_interval)
+                            continue
+                        
+                        # Parse AI response for confirmation
+                        ai_approved = self._parse_ai_confirmation(ai_advice)
+                        
+                        if ai_approved:
+                            self.logger.info(f"✅ AI CONFIRMATION: AI approved {signal} trade at ${current_price:,.2f}")
+                            # Execute the trade
+                            self.execute_trade(signal, current_price)
+                        else:
+                            self.logger.warning(f"🛑 AI BLOCKED TRADE: AI advised against {signal} at ${current_price:,.2f}")
+                            self.logger.info(f"🛑 AI Reasoning: {ai_advice[:150]}...")
+                            print(f"\n⚠️  Trade blocked by AI advisor")
+                            print(f"   Signal: {signal} at ${current_price:,.2f}")
+                            print(f"   AI said: {ai_advice[:100]}...")
+                    else:
+                        # No AI confirmation required, execute directly
+                        self.execute_trade(signal, current_price)
                 
                 # 7. Sleep for check interval
                 time.sleep(self.check_interval)
