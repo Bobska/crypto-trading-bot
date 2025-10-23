@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crypto Trading Bot Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1624;
+      --panel: #1a2234;
+      --text: #e8eef8;
+      --muted: #9fb3c8;
+      --accent: #2e86ab;
+      --green: #35c97a;
+      --red: #ff6b6b;
+      --yellow: #f5c84b;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); }
+    header { padding: 20px; border-bottom: 1px solid #243049; background: #0c1320; position: sticky; top: 0; }
+    header h1 { margin: 0; font-size: 22px; letter-spacing: 0.4px; display: flex; align-items: center; gap: 10px; }
+    header h1 span { font-size: 24px; }
+
+    .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+    .grid { display: grid; gap: 16px; }
+    .grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    @media (max-width: 900px) { .grid.cols-3, .grid.cols-4 { grid-template-columns: repeat(2, 1fr);} }
+    @media (max-width: 600px) { .grid.cols-3, .grid.cols-4 { grid-template-columns: 1fr; } }
+
+    .card { background: var(--panel); border: 1px solid #243049; border-radius: 12px; padding: 16px; box-shadow: 0 6px 20px rgba(0,0,0,0.25); }
+    .card h3 { margin: 0 0 10px; font-size: 14px; color: var(--muted); font-weight: 600; letter-spacing: 0.3px; }
+    .card .value { font-size: 22px; font-weight: 700; }
+    .muted { color: var(--muted); }
+    .status { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; }
+    .status .dot { font-size: 16px; }
+    .status.running { color: var(--green); }
+    .status.stopped { color: var(--red); }
+
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 12px 10px; text-align: left; border-bottom: 1px solid #243049; }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; letter-spacing: 0.3px; text-transform: uppercase; }
+    tr:hover td { background: #162037; }
+
+    .pill { display: inline-block; padding: 4px 10px; border-radius: 999px; font-weight: 600; font-size: 12px; }
+    .pill.win { background: rgba(53,201,122,0.12); color: var(--green); border: 1px solid rgba(53,201,122,0.4); }
+    .pill.loss { background: rgba(255,107,107,0.12); color: var(--red); border: 1px solid rgba(255,107,107,0.4); }
+
+    footer { padding: 30px 0 20px; text-align: center; color: var(--muted); font-size: 12px; }
+    .error { color: var(--yellow); margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1><span>🤖</span> Crypto Trading Bot Dashboard</h1>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="error" class="error" style="display:none"></div>
+
+    <section class="grid cols-4">
+      <div class="card">
+        <h3>Bot Status</h3>
+        <div class="value"><span id="bot-status" class="status stopped"><span class="dot">🔴</span> Stopped</span></div>
+        <div class="muted" id="last-updated">Connecting…</div>
+      </div>
+      <div class="card">
+        <h3>Symbol</h3>
+        <div class="value" id="symbol">—</div>
+        <div class="muted" id="profile">Profile: —</div>
+      </div>
+      <div class="card">
+        <h3>Current Price</h3>
+        <div class="value" id="price">—</div>
+        <div class="muted" id="position">Position: —</div>
+      </div>
+      <div class="card">
+        <h3>Win Rate</h3>
+        <div class="value" id="win-rate">—</div>
+        <div class="muted">Total Trades: <span id="total-trades">—</span></div>
+      </div>
+    </section>
+
+    <section style="margin-top:16px" class="grid cols-3">
+      <div class="card">
+        <h3>USDT Balance</h3>
+        <div class="value" id="usdt-balance">—</div>
+      </div>
+      <div class="card">
+        <h3>BTC Balance</h3>
+        <div class="value" id="btc-balance">—</div>
+      </div>
+      <div class="card">
+        <h3>Combined Value</h3>
+        <div class="value" id="combined-value">—</div>
+      </div>
+    </section>
+
+    <section style="margin-top:16px" class="card">
+      <h3>Recent Trades</h3>
+      <div style="overflow:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Action</th>
+              <th>Price</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="trades-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer>
+      Auto-refreshes every 5 seconds · API: <code>http://localhost:8002/api</code>
+    </footer>
+  </main>
+
+  <script>
+    const API_URL = 'http://localhost:8002/api';
+
+    const el = id => document.getElementById(id);
+    const fmtPrice = v => (v == null ? '—' : `$${Number(v).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`);
+    const fmtPct = v => (v == null ? '—' : `${(Number(v)).toFixed(1)}%`);
+
+    async function fetchJSON(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      return res.json();
+    }
+
+    async function updateDashboard() {
+      try {
+        el('error').style.display = 'none';
+
+        const [status, stats, trades] = await Promise.all([
+          fetchJSON(`${API_URL}/status`),
+          fetchJSON(`${API_URL}/stats`),
+          fetchJSON(`${API_URL}/trades/recent`),
+        ]);
+
+        // Status
+        el('symbol').textContent = status.symbol || '—';
+        el('price').textContent = fmtPrice(status.current_price);
+        el('position').textContent = `Position: ${status.position || '—'}`;
+        el('last-updated').textContent = `Last Updated: ${new Date(status.last_updated).toLocaleString()}`;
+        el('profile').textContent = `Profile: ${status.profile || '—'}`;
+
+        const s = el('bot-status');
+        if (status.bot_running) {
+          s.classList.remove('stopped'); s.classList.add('running');
+          s.innerHTML = '<span class="dot">🟢</span> Running';
+        } else {
+          s.classList.remove('running'); s.classList.add('stopped');
+          s.innerHTML = '<span class="dot">🔴</span> Stopped';
+        }
+
+        // Balance
+        const bal = status.balance || {};
+        const usdt = Number(bal.USDT || 0);
+        const btc = Number(bal.BTC || 0);
+        el('usdt-balance').textContent = `$${usdt.toLocaleString(undefined, {maximumFractionDigits: 2})}`;
+        el('btc-balance').textContent = `${btc.toFixed(6)} BTC`;
+        el('combined-value').textContent = '—'; // Optional: requires price*btc + usdt if same symbol
+
+        // Stats
+        el('total-trades').textContent = stats.total_trades ?? '—';
+        el('win-rate').textContent = fmtPct(stats.win_rate);
+
+        // Trades
+        const tbody = el('trades-body');
+        tbody.innerHTML = '';
+        for (const t of trades) {
+          const tr = document.createElement('tr');
+          const resultClass = t.result === 'WIN' ? 'pill win' : t.result === 'LOSS' ? 'pill loss' : 'pill';
+          tr.innerHTML = `
+            <td>${new Date(t.timestamp).toLocaleString()}</td>
+            <td>${t.action}</td>
+            <td>${fmtPrice(t.price)}</td>
+            <td><span class="${resultClass}">${t.result ?? ''}</span></td>
+          `;
+          tbody.appendChild(tr);
+        }
+      } catch (err) {
+        el('error').style.display = 'block';
+        el('error').textContent = `API error: ${err.message}`;
+      }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 5000);
+  </script>
+</body>
+</html>
