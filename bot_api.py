@@ -28,12 +28,46 @@ trading_bot: Optional[object] = None
 bot_thread: Optional[threading.Thread] = None
 bot_running = False
 
+def is_bot_running() -> bool:
+    """Check if bot is running by looking for recent state updates"""
+    try:
+        state_file = Path("bot_state.json")
+        if not state_file.exists():
+            return bot_running  # Fall back to internal state
+        
+        # Check if state file was modified in last 60 seconds
+        import time
+        last_modified = state_file.stat().st_mtime
+        time_diff = time.time() - last_modified
+        
+        # If state file was updated recently, bot is likely running
+        if time_diff < 60:
+            return True
+        
+        return bot_running
+    except:
+        return bot_running
+
+def load_bot_state() -> Dict:
+    """Load bot state from file"""
+    try:
+        state_file = Path("bot_state.json")
+        if state_file.exists():
+            with open(state_file, 'r') as f:
+                return json.load(f)
+    except:
+        pass
+    return {"position": "USDT", "last_buy_price": None, "last_sell_price": None}
+
 @app.get("/api/status")
 async def get_status():
     """Get current bot status"""
     try:
         import config
         from exchange import BinanceTestnet
+        
+        # Load saved state
+        state = load_bot_state()
         
         # Create exchange instance to get live data
         exchange = BinanceTestnet(config.BINANCE_API_KEY, config.BINANCE_SECRET)
@@ -47,11 +81,14 @@ async def get_status():
         except Exception as e:
             print(f"Error getting exchange data: {e}")
         
+        # Check if bot is running (either managed by API or external process)
+        running = is_bot_running()
+        
         status = {
-            "bot_running": bot_running,
+            "bot_running": running,
             "symbol": config.SYMBOL,
             "current_price": current_price,
-            "position": trading_bot.position if trading_bot else "USDT",
+            "position": state.get("position", "USDT"),
             "balance": balance or {"USDT": 0.0, "BTC": 0.0},
             "last_updated": datetime.now().isoformat(),
             "profile": config.ACTIVE_PROFILE
@@ -65,29 +102,36 @@ async def get_status():
 async def get_stats():
     """Get trading statistics"""
     try:
+        # Try to get stats from running bot first
         if trading_bot and hasattr(trading_bot, 'strategy'):
             stats = trading_bot.strategy.get_stats()
-            
-            # Add last buy/sell prices
             stats['last_buy_price'] = trading_bot.strategy.last_buy_price
             stats['last_sell_price'] = trading_bot.strategy.last_sell_price
-            
             return stats
-        else:
-            return {
-                "total_trades": 0,
-                "wins": 0,
-                "losses": 0,
-                "win_rate": 0.0,
-                "last_buy_price": None,
-                "last_sell_price": None
-            }
+        
+        # Fall back to reading from state file
+        state = load_bot_state()
+        
+        # Calculate stats from trade history in logs
+        trades = parse_trade_history()
+        total_trades = len(trades)
+        wins = sum(1 for t in trades if t.get('result', '').startswith('+'))
+        losses = total_trades - wins
+        win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
+        
+        return {
+            "total_trades": total_trades,
+            "wins": wins,
+            "losses": losses,
+            "win_rate": round(win_rate, 1),
+            "last_buy_price": state.get("last_buy_price"),
+            "last_sell_price": state.get("last_sell_price")
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting stats: {str(e)}")
 
-@app.get("/api/trades/recent")
-async def get_recent_trades():
-    """Get last 10 trades from logs"""
+def parse_trade_history() -> List[Dict]:
+    """Parse trade history from log files"""
     try:
         trades = []
         logs_dir = Path('logs')
@@ -127,7 +171,15 @@ async def get_recent_trades():
                 profit_pct = (profit / trades[i+1]['price']) * 100
                 trades[i]['result'] = f"+${profit:.2f} (+{profit_pct:.2f}%)" if profit > 0 else f"-${abs(profit):.2f} ({profit_pct:.2f}%)"
         
-        # Return last 10 trades
+        return trades
+    except:
+        return []
+
+@app.get("/api/trades/recent")
+async def get_recent_trades():
+    """Get last 10 trades from logs"""
+    try:
+        trades = parse_trade_history()
         return trades[:10]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting trades: {str(e)}")
