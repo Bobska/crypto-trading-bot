@@ -76,6 +76,14 @@ class TradingBot:
                 self.position = 'USDT'
                 self.logger.warning(f"🔍 Balance check: No BTC detected ({btc_balance:.6f}), overriding position to USDT")
             
+            # If holding BTC but no buy price, estimate from current price
+            if self.position == 'BTC' and (self.strategy.last_buy_price is None or self.strategy.last_buy_price == 0.0):
+                current_price = self.exchange.get_current_price(self.symbol)
+                if current_price:
+                    self.strategy.last_buy_price = current_price
+                    self.logger.warning(f"⚠️ No buy price found, estimating from current price: ${current_price:,.2f}")
+                    self.logger.warning(f"⚠️ Profit tracking will be based on this estimated entry price")
+            
             # Save corrected state
             self.save_state()
         
