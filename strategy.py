@@ -3,7 +3,8 @@ Grid Trading Strategy Implementation
 Automated buy/sell strategy based on price movement thresholds
 """
 from logger_setup import setup_logger
-from typing import Optional
+from typing import Optional, List
+from indicators import is_trending, get_market_condition
 
 class GridTradingStrategy:
     """
@@ -49,6 +50,13 @@ class GridTradingStrategy:
         # Price tracking for grid logic
         self.last_buy_price: Optional[float] = None
         self.last_sell_price: Optional[float] = None
+        
+        # Price history for technical analysis
+        self.price_history: List[float] = []
+        self.max_history_length = 100  # Keep last 100 prices
+        
+        # Market condition tracking
+        self.last_market_condition: Optional[str] = None
         
         # Strategy statistics
         self.total_trades = 0
@@ -126,7 +134,25 @@ class GridTradingStrategy:
         Returns:
             Trading signal: 'BUY', 'SELL', or 'HOLD'
         """
-        self.logger.debug(f"Analyzing price: ${current_price:,.2f}, Position: {position}")
+        # Update price history
+        self.price_history.append(current_price)
+        if len(self.price_history) > self.max_history_length:
+            self.price_history.pop(0)
+        
+        # Check market conditions (trending vs ranging)
+        current_condition = get_market_condition(self.price_history)
+        
+        # Log market condition changes
+        if current_condition != self.last_market_condition:
+            self.logger.info(f"Market condition changed: {self.last_market_condition or 'UNKNOWN'} -> {current_condition}")
+            self.last_market_condition = current_condition
+        
+        # Grid trading only works well in RANGING markets
+        if current_condition == 'TRENDING':
+            self.logger.debug(f"Market is TRENDING - skipping grid trading signals")
+            return 'HOLD'
+        
+        self.logger.debug(f"Analyzing price: ${current_price:,.2f}, Position: {position}, Market: {current_condition}")
         
         if position == 'USDT':
             # Holding cash (USDT) - looking for buy opportunities
