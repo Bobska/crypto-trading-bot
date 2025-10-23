@@ -22,7 +22,14 @@ class AIAdvisor:
             api_url: URL of the AI service API (default: 'http://localhost:8000')
         """
         self.logger = setup_logger('AIAdvisor')
-        self.api_url = api_url.rstrip('/')  # Remove trailing slash
+        self.api_url = api_url.rstrip('/') if api_url else ""  # Remove trailing slash
+        
+        # If no API URL provided, initialize in disabled mode
+        if not self.api_url or not self.api_url.startswith(('http://', 'https://')):
+            self.enabled = False
+            self.logger.info(f"AI Advisor initialized in disabled mode (no valid API URL)")
+            return
+        
         self.enabled = True
         
         # Test connection to AI API
