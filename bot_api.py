@@ -1084,6 +1084,7 @@ async def set_bot_mode(mode_request: dict):
 async def websocket_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint for real-time updates with improved keep-alive
+    Sends: price_update, trade_executed, status_change, heartbeat
     """
     print("🔌 WebSocket connection attempt...")
     
@@ -1109,7 +1110,7 @@ async def websocket_endpoint(websocket: WebSocket):
         # CRITICAL FIX: Keep connection alive indefinitely with proper error handling
         while True:
             try:
-                # Try to receive message with shorter timeout
+                # Try to receive message with 30-second timeout
                 try:
                     data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
                     
@@ -1158,9 +1159,14 @@ async def websocket_endpoint(websocket: WebSocket):
                 print("👋 Client disconnected normally")
                 break
             except Exception as e:
-                print(f"❌ WebSocket error: {e}")
-                # Don't break immediately on other errors, try to continue
-                await asyncio.sleep(1)
+                # Check if it's a connection closed error
+                if 'ConnectionClosedError' in str(type(e).__name__) or 'closed' in str(e).lower():
+                    print(f"🔌 Connection closed: {e}")
+                    break
+                else:
+                    print(f"❌ WebSocket error: {e}")
+                    # Don't break immediately on other errors
+                    await asyncio.sleep(1)
                 
     except Exception as e:
         print(f"❌ WebSocket connection error: {e}")
