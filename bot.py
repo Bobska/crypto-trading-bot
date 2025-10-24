@@ -5,8 +5,9 @@ Main trading bot that coordinates exchange, strategy, and AI advisor
 import json
 import time
 import traceback
+import asyncio
 from datetime import datetime, timedelta
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from logger_setup import setup_logger
 
 class TradingBot:
@@ -92,6 +93,36 @@ class TradingBot:
         
         # Log final confirmed position
         self.logger.info(f"Starting with position: {self.position}")
+    
+    def _broadcast_update(self, message_type: str, data: dict) -> None:
+        """
+        Send update to all WebSocket clients via bot_api using specialized broadcast methods
+        
+        Args:
+            message_type: Type of update (e.g., 'trade_executed', 'price_update', 'status_change')
+            data: Update data dictionary
+        """
+        try:
+            import sys
+            if 'bot_api' in sys.modules:
+                from bot_api import manager
+                
+                # Use specialized broadcast methods for better formatting
+                if message_type == 'trade_executed':
+                    asyncio.run(manager.broadcast_trade(data))
+                elif message_type == 'price_update':
+                    asyncio.run(manager.broadcast_price(data))
+                elif message_type == 'status_change':
+                    asyncio.run(manager.broadcast_status(data))
+                else:
+                    # Fallback to generic broadcast
+                    asyncio.run(manager.broadcast({
+                        "type": message_type,
+                        "data": data,
+                        "timestamp": datetime.now().isoformat()
+                    }))
+        except Exception as e:
+            self.logger.debug(f"WebSocket broadcast failed (API may not be running): {e}")
     
     def save_state(self) -> None:
         """
@@ -218,6 +249,14 @@ class TradingBot:
                 self.position = 'BTC'
                 self.logger.info(f"✅ BUY order successful - Position changed to BTC")
                 
+                # Broadcast trade update
+                self._broadcast_update("trade_executed", {
+                    "action": "BUY",
+                    "price": price,
+                    "amount": self.strategy.trade_amount,
+                    "position": self.position
+                })
+                
                 # Save state after successful trade
                 self.save_state()
                 
@@ -239,6 +278,20 @@ class TradingBot:
                 self.strategy.record_sell(price)
                 self.position = 'USDT'
                 self.logger.info(f"✅ SELL order successful - Position changed to USDT")
+                
+                # Calculate profit percentage
+                profit_pct = 0.0
+                if self.strategy.last_buy_price and self.strategy.last_buy_price > 0:
+                    profit_pct = ((price - self.strategy.last_buy_price) / self.strategy.last_buy_price) * 100
+                
+                # Broadcast trade update
+                self._broadcast_update("trade_executed", {
+                    "action": "SELL",
+                    "price": price,
+                    "amount": self.strategy.trade_amount,
+                    "position": self.position,
+                    "profit_pct": round(profit_pct, 2)
+                })
                 
                 # Adjust position size based on performance
                 balance = self.exchange.get_balance()
@@ -393,6 +446,12 @@ Should I pause trading during this volatile period?"""
         # Log startup
         self.logger.info(f"🚀 Trading Bot starting...")
         
+        # Broadcast status change
+        self._broadcast_update("status_change", {
+            "status": "running",
+            "symbol": self.symbol
+        })
+        
         # Print user-friendly startup messages
         print()
         print("=" * 60)
@@ -420,6 +479,14 @@ Should I pause trading during this volatile period?"""
                     self.logger.warning("⚠️ Failed to get current price, skipping iteration")
                     time.sleep(self.check_interval)
                     continue
+                
+                # Broadcast price update every 10 iterations (reduce broadcast frequency)
+                if iteration % 10 == 0:
+                    self._broadcast_update("price_update", {
+                        "price": current_price,
+                        "symbol": self.symbol,
+                        "position": self.position
+                    })
                 
                 # 2. Check for price alerts (high volatility detection)
                 self.check_price_alerts(current_price)
@@ -493,6 +560,11 @@ Should I pause trading during this volatile period?"""
         Stop the trading bot gracefully and send daily summary to AI
         """
         self.running = False
+        
+        # Broadcast status change
+        self._broadcast_update("status_change", {
+            "status": "stopped"
+        })
         
         # Save state before shutdown
         self.save_state()
