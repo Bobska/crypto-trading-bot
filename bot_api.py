@@ -4,6 +4,7 @@ Exposes FastAPI endpoints to control and monitor the trading bot
 """
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from websockets.exceptions import ConnectionClosedError
 from datetime import datetime
 from pathlib import Path
 import threading
