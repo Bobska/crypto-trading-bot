@@ -1077,6 +1077,129 @@ async def set_bot_mode(mode_request: dict):
         raise HTTPException(status_code=500, detail=f"Error changing bot mode: {str(e)}")
 
 
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time updates
+    
+    Sends:
+    - price_update: Live price changes
+    - trade_executed: When trades are executed
+    - status_change: Bot status changes
+    - heartbeat: Keep-alive messages
+    """
+    await manager.connect(websocket)
+    
+    try:
+        # Send initial status
+        state = load_bot_state()
+        await websocket.send_json({
+            'type': 'status',
+            'data': {
+                'bot_running': is_bot_running(),
+                'position': state.get('position', 'USDT'),
+                'timestamp': datetime.now().isoformat()
+            }
+        })
+        
+        # Keep connection open and handle incoming messages
+        while True:
+            try:
+                # Wait for messages from client (ping/pong, etc)
+                data = await websocket.receive_text()
+                
+                # Echo back for debugging (optional)
+                if data:
+                    try:
+                        msg = json.loads(data)
+                        if msg.get('type') == 'ping':
+                            await websocket.send_json({
+                                'type': 'pong',
+                                'timestamp': datetime.now().isoformat()
+                            })
+                    except:
+                        pass
+                        
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                print(f"WebSocket error: {e}")
+                break
+                
+    finally:
+        manager.disconnect(websocket)
+
+
+# Background task for price updates
+price_update_task: Optional[asyncio.Task] = None
+
+async def broadcast_price_updates():
+    """Background task to broadcast live price updates"""
+    import config
+    from exchange import BinanceTestnet
+    
+    print("📡 Starting price update broadcaster...")
+    
+    exchange = BinanceTestnet(config.BINANCE_API_KEY, config.BINANCE_SECRET)
+    symbol = config.SYMBOL
+    
+    while True:
+        try:
+            # Check if there are active connections
+            if not manager.active_connections:
+                await asyncio.sleep(5)  # Sleep longer if no clients
+                continue
+            
+            # Fetch current price
+            try:
+                current_price = exchange.get_current_price(symbol)
+                
+                # Broadcast price update
+                await manager.broadcast_price({
+                    'price': current_price,
+                    'symbol': symbol
+                })
+                
+            except Exception as e:
+                print(f"Error fetching price: {e}")
+            
+            # Update every 2 seconds
+            await asyncio.sleep(2)
+            
+        except asyncio.CancelledError:
+            print("📡 Price broadcaster stopped")
+            break
+        except Exception as e:
+            print(f"Price broadcaster error: {e}")
+            await asyncio.sleep(5)
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Start background tasks on server startup"""
+    global price_update_task
+    
+    # Start price update broadcaster
+    price_update_task = asyncio.create_task(broadcast_price_updates())
+    print("✅ Background tasks started")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on server shutdown"""
+    global price_update_task
+    
+    # Cancel price update task
+    if price_update_task:
+        price_update_task.cancel()
+        try:
+            await price_update_task
+        except asyncio.CancelledError:
+            pass
+    
+    print("✅ Background tasks stopped")
+
+
 @app.get("/")
 async def root():
     """API root endpoint"""
@@ -1098,6 +1221,11 @@ async def root():
             "start_bot": "POST /api/bot/start",
             "stop_bot": "POST /api/bot/stop",
             "websocket": "ws://localhost:8002/ws"
+        },
+        "websocket_info": {
+            "url": "ws://localhost:8002/ws",
+            "updates": ["price_update", "trade_executed", "status_change", "heartbeat"],
+            "update_interval": "2 seconds"
         }
     }
 
