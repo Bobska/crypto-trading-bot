@@ -314,11 +314,26 @@ async def get_status():
         current_price = None
         balance = None
         
+        # Fetch exchange data with timeout protection (2 seconds max)
         try:
-            current_price = exchange.get_current_price(config.SYMBOL)
-            balance = exchange.get_balance()
+            async def fetch_exchange_data():
+                # Run blocking exchange calls in thread pool to avoid blocking event loop
+                loop = asyncio.get_event_loop()
+                price = await loop.run_in_executor(None, exchange.get_current_price, config.SYMBOL)
+                bal = await loop.run_in_executor(None, exchange.get_balance)
+                return price, bal
+            
+            current_price, balance = await asyncio.wait_for(fetch_exchange_data(), timeout=2.0)
+        except asyncio.TimeoutError:
+            print("⚠️ Exchange API timeout (2s) - using cached data")
+            # Use cached/state data as fallback
+            current_price = state.get('last_price')
+            balance = state.get('balance', {"USDT": 0.0, "BTC": 0.0})
         except Exception as e:
-            print(f"Error getting exchange data: {e}")
+            print(f"⚠️ Error getting exchange data: {e}")
+            # Use cached/state data as fallback
+            current_price = state.get('last_price')
+            balance = state.get('balance', {"USDT": 0.0, "BTC": 0.0})
         
         # Check if bot is running (either managed by API or external process)
         running = is_bot_running()
@@ -503,48 +518,7 @@ async def stop_bot():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error stopping bot: {str(e)}")
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time updates"""
-    await manager.connect(websocket)
-    
-    try:
-        # Send initial status on connect
-        status_data = await get_status()
-        await websocket.send_text(json.dumps({
-            "type": "status",
-            "data": status_data
-        }))
-        
-        # Keep connection alive and handle incoming messages
-        while True:
-            try:
-                # Receive messages from client
-                data = await websocket.receive_text()
-                message = json.loads(data)
-                
-                # Handle client commands
-                if message.get("command") == "get_status":
-                    status_data = await get_status()
-                    await websocket.send_text(json.dumps({
-                        "type": "status",
-                        "data": status_data
-                    }))
-                elif message.get("command") == "get_stats":
-                    stats_data = await get_stats()
-                    await websocket.send_text(json.dumps({
-                        "type": "stats",
-                        "data": stats_data
-                    }))
-                    
-            except WebSocketDisconnect:
-                break
-            except Exception as e:
-                print(f"WebSocket error: {e}")
-                await asyncio.sleep(1)
-    
-    finally:
-        manager.disconnect(websocket)
+# NOTE: WebSocket endpoint moved to line ~1108 to avoid duplication
 
 @app.get("/api/connections")
 async def get_connections():
@@ -587,10 +561,10 @@ async def get_candles(symbol: str, timeframe: str, limit: int = 500):
         # Create exchange instance
         exchange = BinanceTestnet(config.BINANCE_API_KEY, config.BINANCE_SECRET)
         
-        # Fetch candles from exchange
-        candles = exchange.client.get_klines(
-            symbol=api_symbol,
-            interval=timeframe,
+        # Use CCXT's fetch_ohlcv method (exchange.exchange is the CCXT instance)
+        candles = exchange.exchange.fetch_ohlcv(
+            symbol=symbol,  # Keep the slash: 'BTC/USDT'
+            timeframe=timeframe,
             limit=limit
         )
         
@@ -1137,29 +1111,64 @@ async def websocket_endpoint(websocket: WebSocket):
         except Exception as e:
             print(f"❌ Error sending initial status: {e}")
         
-        # Keep connection open and handle incoming messages
+        # CRITICAL: Keep connection alive indefinitely
         while True:
             try:
-                # Wait for messages from client (ping/pong, etc)
-                data = await websocket.receive_text()
+                # Wait for messages from client with 60-second timeout
+                # This allows us to detect dead connections and send keepalives
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
                 
-                # Echo back for debugging (optional)
+                # Handle client messages
                 if data:
                     try:
                         msg = json.loads(data)
+                        
+                        # Handle ping/pong
                         if msg.get('type') == 'ping':
                             await websocket.send_json({
                                 'type': 'pong',
                                 'timestamp': datetime.now().isoformat()
                             })
-                    except:
-                        pass
                         
+                        # Handle status request
+                        elif msg.get('command') == 'get_status':
+                            status_data = await get_status()
+                            await websocket.send_json({
+                                'type': 'status',
+                                'data': status_data
+                            })
+                        
+                        # Handle stats request
+                        elif msg.get('command') == 'get_stats':
+                            stats_data = await get_stats()
+                            await websocket.send_json({
+                                'type': 'stats',
+                                'data': stats_data
+                            })
+                    except json.JSONDecodeError:
+                        pass  # Ignore invalid JSON
+                    except Exception as e:
+                        print(f"⚠️ Error handling message: {e}")
+                        
+            except asyncio.TimeoutError:
+                # No message for 60 seconds - send keepalive ping to check connection health
+                try:
+                    await websocket.send_json({
+                        'type': 'heartbeat',
+                        'timestamp': datetime.now().isoformat()
+                    })
+                    print("💓 Sent keepalive heartbeat")
+                except Exception as e:
+                    print(f"❌ Failed to send heartbeat, connection dead: {e}")
+                    break  # Connection is dead, exit loop
+                    
             except WebSocketDisconnect:
-                print("👋 Client disconnected")
+                print("👋 Client disconnected normally")
                 break
             except Exception as e:
                 print(f"❌ WebSocket receive error: {e}")
+                import traceback
+                print(traceback.format_exc())
                 break
                 
     except Exception as e:
