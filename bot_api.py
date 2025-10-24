@@ -11,6 +11,7 @@ import re
 import json
 import asyncio
 from typing import Optional, Dict, List
+from contextlib import asynccontextmanager
 
 # WebSocket Connection Manager
 class ConnectionManager:
@@ -219,8 +220,35 @@ class ConnectionManager:
         
         return stats
 
-# Create FastAPI app
-app = FastAPI(title="Trading Bot API", version="1.0.0")
+# Forward declaration of price_update_task
+price_update_task: Optional[asyncio.Task] = None
+
+# Lifespan context manager for startup/shutdown events
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup/shutdown events"""
+    global price_update_task
+    
+    # Startup: Start background tasks
+    print("🚀 Starting background tasks...")
+    price_update_task = asyncio.create_task(broadcast_price_updates())
+    print("✅ Background tasks started")
+    
+    yield  # Application runs here
+    
+    # Shutdown: Cleanup
+    print("🛑 Stopping background tasks...")
+    if price_update_task:
+        price_update_task.cancel()
+        try:
+            await price_update_task
+        except asyncio.CancelledError:
+            pass
+    print("✅ Background tasks stopped")
+
+# Create FastAPI app with lifespan
+app = FastAPI(title="Trading Bot API", version="1.0.0", lifespan=lifespan)
 
 # Enable CORS for local HTML access
 app.add_middleware(
@@ -1192,32 +1220,6 @@ async def broadcast_price_updates():
         except Exception as e:
             print(f"❌ Price broadcaster error: {e}")
             await asyncio.sleep(5)
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Start background tasks on server startup"""
-    global price_update_task
-    
-    # Start price update broadcaster
-    price_update_task = asyncio.create_task(broadcast_price_updates())
-    print("✅ Background tasks started")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on server shutdown"""
-    global price_update_task
-    
-    # Cancel price update task
-    if price_update_task:
-        price_update_task.cancel()
-        try:
-            await price_update_task
-        except asyncio.CancelledError:
-            pass
-    
-    print("✅ Background tasks stopped")
 
 
 @app.get("/")
