@@ -1181,8 +1181,11 @@ async def websocket_endpoint(websocket: WebSocket):
 price_update_task: Optional[asyncio.Task] = None
 
 async def broadcast_price_updates():
-    """Background task to broadcast live price updates"""
+    """Background task to broadcast live price updates every 2 seconds"""
     print("📡 Starting price update broadcaster...")
+    
+    # Wait a bit for the app to fully start
+    await asyncio.sleep(2)
     
     try:
         import config
@@ -1194,38 +1197,60 @@ async def broadcast_price_updates():
         
     except Exception as e:
         print(f"❌ Failed to initialize price broadcaster: {e}")
-        print("⚠️  Continuing without real-time price updates")
+        print("⚠️  Price updates disabled")
         return  # Exit broadcaster if can't initialize
+    
+    update_count = 0
     
     while True:
         try:
-            # Check if there are active connections
+            # Always broadcast when there are active connections
+            # Don't skip broadcasts - let the client decide
             if not manager.active_connections:
-                await asyncio.sleep(5)  # Sleep longer if no clients
+                # No clients connected, sleep longer
+                await asyncio.sleep(5)
                 continue
             
             # Fetch current price
             try:
                 current_price = exchange.get_current_price(symbol)
+                update_count += 1
                 
-                # Broadcast price update
-                await manager.broadcast_price({
-                    'price': current_price,
-                    'symbol': symbol
+                # Broadcast price update (removed 0.1% filter for now)
+                await manager.broadcast({
+                    'type': 'price_update',
+                    'data': {
+                        'price': current_price,
+                        'symbol': symbol,
+                        'timestamp': datetime.now().isoformat(),
+                        'formatted_price': f"${current_price:,.2f}"
+                    }
                 })
                 
+                # Log every 10 updates to avoid spam
+                if update_count % 10 == 0:
+                    print(f"📊 Price broadcaster: {update_count} updates sent, current: ${current_price:,.2f}")
+                
             except Exception as e:
-                print(f"⚠️  Error fetching price: {e}")
+                print(f"⚠️ Error fetching price: {e}")
+                # Don't crash, continue trying
+                await asyncio.sleep(5)
+                continue
             
             # Update every 2 seconds
             await asyncio.sleep(2)
             
         except asyncio.CancelledError:
-            print("📡 Price broadcaster stopped")
+            print("📡 Price broadcaster stopped (cancelled)")
             break
         except Exception as e:
             print(f"❌ Price broadcaster error: {e}")
+            import traceback
+            print(traceback.format_exc())
+            # Don't crash the whole task, wait and retry
             await asyncio.sleep(5)
+    
+    print("📡 Price broadcaster shut down")
 
 
 @app.get("/")
