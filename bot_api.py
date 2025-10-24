@@ -1088,19 +1088,26 @@ async def websocket_endpoint(websocket: WebSocket):
     - status_change: Bot status changes
     - heartbeat: Keep-alive messages
     """
-    await manager.connect(websocket)
+    print("🔌 WebSocket connection attempt...")
     
     try:
+        await manager.connect(websocket)
+        print("✅ WebSocket connected successfully")
+        
         # Send initial status
-        state = load_bot_state()
-        await websocket.send_json({
-            'type': 'status',
-            'data': {
-                'bot_running': is_bot_running(),
-                'position': state.get('position', 'USDT'),
-                'timestamp': datetime.now().isoformat()
-            }
-        })
+        try:
+            state = load_bot_state()
+            await websocket.send_json({
+                'type': 'status',
+                'data': {
+                    'bot_running': is_bot_running(),
+                    'position': state.get('position', 'USDT'),
+                    'timestamp': datetime.now().isoformat()
+                }
+            })
+            print("📤 Sent initial status")
+        except Exception as e:
+            print(f"❌ Error sending initial status: {e}")
         
         # Keep connection open and handle incoming messages
         while True:
@@ -1121,13 +1128,19 @@ async def websocket_endpoint(websocket: WebSocket):
                         pass
                         
             except WebSocketDisconnect:
+                print("👋 Client disconnected")
                 break
             except Exception as e:
-                print(f"WebSocket error: {e}")
+                print(f"❌ WebSocket receive error: {e}")
                 break
                 
+    except Exception as e:
+        print(f"❌ WebSocket connection error: {e}")
+        import traceback
+        print(traceback.format_exc())
     finally:
         manager.disconnect(websocket)
+        print("🔌 WebSocket connection closed")
 
 
 # Background task for price updates
@@ -1135,13 +1148,20 @@ price_update_task: Optional[asyncio.Task] = None
 
 async def broadcast_price_updates():
     """Background task to broadcast live price updates"""
-    import config
-    from exchange import BinanceTestnet
-    
     print("📡 Starting price update broadcaster...")
     
-    exchange = BinanceTestnet(config.BINANCE_API_KEY, config.BINANCE_SECRET)
-    symbol = config.SYMBOL
+    try:
+        import config
+        from exchange import BinanceTestnet
+        
+        exchange = BinanceTestnet(config.BINANCE_API_KEY, config.BINANCE_SECRET)
+        symbol = config.SYMBOL
+        print(f"✅ Price broadcaster initialized for {symbol}")
+        
+    except Exception as e:
+        print(f"❌ Failed to initialize price broadcaster: {e}")
+        print("⚠️  Continuing without real-time price updates")
+        return  # Exit broadcaster if can't initialize
     
     while True:
         try:
@@ -1161,7 +1181,7 @@ async def broadcast_price_updates():
                 })
                 
             except Exception as e:
-                print(f"Error fetching price: {e}")
+                print(f"⚠️  Error fetching price: {e}")
             
             # Update every 2 seconds
             await asyncio.sleep(2)
@@ -1170,7 +1190,7 @@ async def broadcast_price_updates():
             print("📡 Price broadcaster stopped")
             break
         except Exception as e:
-            print(f"Price broadcaster error: {e}")
+            print(f"❌ Price broadcaster error: {e}")
             await asyncio.sleep(5)
 
 
