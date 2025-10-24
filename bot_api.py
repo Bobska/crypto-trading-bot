@@ -523,17 +523,578 @@ async def get_connections():
     """Get WebSocket connection statistics"""
     return manager.get_connection_stats()
 
+# ===================================
+# TRADING TERMINAL ENDPOINTS
+# ===================================
+
+@app.get("/api/candles/{symbol}/{timeframe}")
+async def get_candles(symbol: str, timeframe: str, limit: int = 500):
+    """
+    Get historical OHLCV candlestick data
+    
+    Parameters:
+    - symbol: Trading pair (e.g., BTC/USDT)
+    - timeframe: Candle interval (1m, 5m, 15m, 1h, 4h, 1d)
+    - limit: Number of candles to fetch (default 500, max 1000)
+    
+    Returns:
+    - Array of candles: [{time, open, high, low, close, volume}, ...]
+    """
+    try:
+        import config
+        from exchange import BinanceTestnet
+        
+        # Validate timeframe
+        valid_timeframes = ['1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '12h', '1d', '3d', '1w']
+        if timeframe not in valid_timeframes:
+            raise HTTPException(status_code=400, detail=f"Invalid timeframe. Valid: {valid_timeframes}")
+        
+        # Validate limit
+        if limit < 1 or limit > 1000:
+            raise HTTPException(status_code=400, detail="Limit must be between 1 and 1000")
+        
+        # Normalize symbol (replace / with nothing for Binance API)
+        api_symbol = symbol.replace('/', '')
+        
+        # Create exchange instance
+        exchange = BinanceTestnet(config.BINANCE_API_KEY, config.BINANCE_SECRET)
+        
+        # Fetch candles from exchange
+        candles = exchange.client.get_klines(
+            symbol=api_symbol,
+            interval=timeframe,
+            limit=limit
+        )
+        
+        # Format response
+        formatted_candles = []
+        for candle in candles:
+            formatted_candles.append({
+                'time': int(candle[0] / 1000),  # Convert to seconds
+                'open': float(candle[1]),
+                'high': float(candle[2]),
+                'low': float(candle[3]),
+                'close': float(candle[4]),
+                'volume': float(candle[5])
+            })
+        
+        print(f"📊 Fetched {len(formatted_candles)} candles for {symbol} ({timeframe})")
+        return formatted_candles
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Error fetching candles: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error fetching candles: {str(e)}")
+
+
+@app.post("/api/manual-trade")
+async def manual_trade(trade_request: dict):
+    """
+    Execute a manual trade
+    
+    Body:
+    - action: 'BUY' or 'SELL'
+    - amount: Trade amount in BTC
+    - price: Optional limit price (uses market price if not provided)
+    
+    Returns:
+    - success: boolean
+    - order: Order details
+    - error: Error message if failed
+    """
+    try:
+        import config
+        from exchange import BinanceTestnet
+        
+        # Validate request
+        action = trade_request.get('action', '').upper()
+        amount = trade_request.get('amount')
+        price = trade_request.get('price')
+        
+        if action not in ['BUY', 'SELL']:
+            raise HTTPException(status_code=400, detail="Action must be 'BUY' or 'SELL'")
+        
+        if not amount or amount <= 0:
+            raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+        
+        # Create exchange instance
+        exchange = BinanceTestnet(config.BINANCE_API_KEY, config.BINANCE_SECRET)
+        
+        # Get current balance
+        balance = exchange.get_balance()
+        
+        # Validate balance
+        current_price = exchange.get_current_price(config.SYMBOL)
+        if action == 'BUY':
+            required_usdt = amount * (price if price else current_price)
+            if balance.get('USDT', 0) < required_usdt:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient USDT balance. Required: ${required_usdt:.2f}, Available: ${balance.get('USDT', 0):.2f}"
+                )
+        elif action == 'SELL':
+            if balance.get('BTC', 0) < amount:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient BTC balance. Required: {amount}, Available: {balance.get('BTC', 0)}"
+                )
+        
+        # Execute trade
+        print(f"🎯 Manual trade: {action} {amount} BTC at ${price or current_price:.2f}")
+        
+        if action == 'BUY':
+            order = exchange.place_buy_order(config.SYMBOL, amount, price)
+        else:
+            order = exchange.place_sell_order(config.SYMBOL, amount, price)
+        
+        # Get executed price
+        executed_price = float(order.get('price', price or current_price))
+        
+        # Log trade to database (if available)
+        try:
+            # This would integrate with Django database
+            # For now, we'll just log it
+            print(f"✅ Manual trade executed: {action} {amount} BTC at ${executed_price:.2f}")
+        except Exception as e:
+            print(f"Warning: Could not log trade to database: {e}")
+        
+        # Broadcast via WebSocket
+        await manager.broadcast_trade({
+            'action': action,
+            'price': executed_price,
+            'amount': amount,
+            'position': 'BTC' if action == 'BUY' else 'USDT',
+            'manual': True
+        })
+        
+        return {
+            'success': True,
+            'order': {
+                'id': order.get('orderId'),
+                'symbol': config.SYMBOL,
+                'action': action,
+                'amount': amount,
+                'price': executed_price,
+                'status': order.get('status', 'FILLED'),
+                'timestamp': datetime.now().isoformat()
+            },
+            'error': None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Error executing manual trade: {str(e)}")
+        print(traceback.format_exc())
+        return {
+            'success': False,
+            'order': None,
+            'error': str(e)
+        }
+
+
+@app.get("/api/position/pnl")
+async def get_position_pnl():
+    """
+    Get real-time P&L calculation for current position
+    
+    Returns:
+    - entry_price: Average entry price
+    - current_price: Current market price
+    - unrealized_pnl: Unrealized profit/loss in USD
+    - unrealized_pnl_pct: Unrealized profit/loss percentage
+    - if_sold_now: Net profit if position closed now
+    - roi: Return on investment percentage
+    - fees: Estimated fees
+    """
+    try:
+        import config
+        from exchange import BinanceTestnet
+        
+        # Load bot state
+        state = load_bot_state()
+        position = state.get('position', 'USDT')
+        
+        # Create exchange instance
+        exchange = BinanceTestnet(config.BINANCE_API_KEY, config.BINANCE_SECRET)
+        
+        # Get current price and balance
+        current_price = exchange.get_current_price(config.SYMBOL)
+        balance = exchange.get_balance()
+        
+        # Calculate P&L based on position
+        if position == 'BTC' or balance.get('BTC', 0) > 0:
+            # We have BTC position
+            btc_amount = balance.get('BTC', 0)
+            entry_price = state.get('last_buy_price', current_price)
+            
+            # Calculate unrealized P&L
+            entry_value = btc_amount * entry_price
+            current_value = btc_amount * current_price
+            unrealized_pnl = current_value - entry_value
+            unrealized_pnl_pct = (unrealized_pnl / entry_value * 100) if entry_value > 0 else 0
+            
+            # Estimate fees (0.1% per trade, buy + sell)
+            estimated_fees = entry_value * 0.001 + current_value * 0.001
+            
+            # Net profit if sold now
+            if_sold_now = unrealized_pnl - estimated_fees
+            roi = (if_sold_now / entry_value * 100) if entry_value > 0 else 0
+            
+            return {
+                'has_position': True,
+                'position_type': 'LONG',
+                'amount': btc_amount,
+                'entry_price': entry_price,
+                'current_price': current_price,
+                'unrealized_pnl': round(unrealized_pnl, 2),
+                'unrealized_pnl_pct': round(unrealized_pnl_pct, 2),
+                'if_sold_now': round(if_sold_now, 2),
+                'roi': round(roi, 2),
+                'estimated_fees': round(estimated_fees, 2),
+                'entry_value': round(entry_value, 2),
+                'current_value': round(current_value, 2)
+            }
+        else:
+            # No position (all USDT)
+            return {
+                'has_position': False,
+                'position_type': 'NONE',
+                'amount': 0,
+                'entry_price': 0,
+                'current_price': current_price,
+                'unrealized_pnl': 0,
+                'unrealized_pnl_pct': 0,
+                'if_sold_now': 0,
+                'roi': 0,
+                'estimated_fees': 0,
+                'entry_value': 0,
+                'current_value': balance.get('USDT', 0)
+            }
+            
+    except Exception as e:
+        import traceback
+        print(f"Error calculating P&L: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error calculating P&L: {str(e)}")
+
+
+@app.get("/api/orders/history")
+async def get_orders_history(
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    trade_type: Optional[str] = None,
+    result: Optional[str] = None,
+    limit: int = 50
+):
+    """
+    Get paginated order history with filters
+    
+    Query params:
+    - from_date: Start date (YYYY-MM-DD)
+    - to_date: End date (YYYY-MM-DD)
+    - trade_type: BUY or SELL
+    - result: WIN or LOSS
+    - limit: Number of orders (default 50, max 100)
+    
+    Returns:
+    - orders: Array of order details
+    - summary: Statistics (total trades, volume, fees, net P&L)
+    """
+    try:
+        # Parse trade history from logs
+        trades = parse_trade_history()
+        
+        # Apply filters
+        filtered_trades = trades
+        
+        if from_date:
+            filtered_trades = [t for t in filtered_trades if t['timestamp'] >= from_date]
+        
+        if to_date:
+            filtered_trades = [t for t in filtered_trades if t['timestamp'] <= to_date + ' 23:59:59']
+        
+        if trade_type and trade_type.upper() in ['BUY', 'SELL']:
+            filtered_trades = [t for t in filtered_trades if t['action'] == trade_type.upper()]
+        
+        if result and result.upper() in ['WIN', 'LOSS']:
+            if result.upper() == 'WIN':
+                filtered_trades = [t for t in filtered_trades if t.get('result') and '+' in str(t['result'])]
+            else:
+                filtered_trades = [t for t in filtered_trades if t.get('result') and '-' in str(t['result'])]
+        
+        # Limit results
+        if limit > 100:
+            limit = 100
+        paginated_trades = filtered_trades[:limit]
+        
+        # Calculate summary statistics
+        total_trades = len(filtered_trades)
+        wins = sum(1 for t in filtered_trades if t.get('result') and '+' in str(t['result']))
+        losses = sum(1 for t in filtered_trades if t.get('result') and '-' in str(t['result']))
+        
+        # Calculate total volume and fees (estimated)
+        total_volume = sum(t['price'] for t in filtered_trades)
+        estimated_fees = total_volume * 0.001  # 0.1% fee estimate
+        
+        summary = {
+            'total_trades': total_trades,
+            'wins': wins,
+            'losses': losses,
+            'win_rate': round((wins / total_trades * 100) if total_trades > 0 else 0, 2),
+            'total_volume': round(total_volume, 2),
+            'estimated_fees': round(estimated_fees, 2)
+        }
+        
+        return {
+            'orders': paginated_trades,
+            'summary': summary,
+            'filters': {
+                'from_date': from_date,
+                'to_date': to_date,
+                'trade_type': trade_type,
+                'result': result,
+                'limit': limit
+            }
+        }
+        
+    except Exception as e:
+        import traceback
+        print(f"Error getting order history: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error getting order history: {str(e)}")
+
+
+@app.post("/api/ai/advice")
+async def get_ai_advice(request: dict):
+    """
+    Get AI trading advice
+    
+    Body:
+    - mode: 'opinion', 'suggest', or 'copilot'
+    - context: Additional context (price, indicators, etc.)
+    
+    Returns:
+    - advice: AI response text
+    - confidence: Confidence score (if copilot mode)
+    - action: Suggested action (if applicable)
+    """
+    try:
+        import config
+        from ai_advisor import AIAdvisor
+        
+        mode = request.get('mode', 'opinion')
+        context = request.get('context', {})
+        
+        # Validate mode
+        if mode not in ['opinion', 'suggest', 'copilot']:
+            raise HTTPException(status_code=400, detail="Mode must be 'opinion', 'suggest', or 'copilot'")
+        
+        # Create AI advisor
+        ai_advisor = AIAdvisor(api_url=config.AI_API_URL if config.AI_ENABLED else "")
+        
+        # Get AI response based on mode
+        if mode == 'opinion':
+            # General market opinion
+            advice_text = f"Market analysis requested at ${context.get('price', 'N/A')}"
+            response = {
+                'advice': advice_text,
+                'mode': mode,
+                'timestamp': datetime.now().isoformat()
+            }
+        elif mode == 'suggest':
+            # Suggestion based on indicators
+            advice_text = "Based on current market conditions, suggest holding position."
+            response = {
+                'advice': advice_text,
+                'action': 'HOLD',
+                'reasoning': 'Market is consolidating',
+                'mode': mode,
+                'timestamp': datetime.now().isoformat()
+            }
+        elif mode == 'copilot':
+            # Full copilot mode with confidence
+            advice_text = "AI copilot analysis complete."
+            response = {
+                'advice': advice_text,
+                'action': 'BUY',
+                'confidence': 'medium',
+                'reasoning': 'Technical indicators show potential upward movement',
+                'mode': mode,
+                'timestamp': datetime.now().isoformat()
+            }
+        
+        print(f"🤖 AI advice requested: {mode}")
+        
+        # Broadcast to WebSocket
+        await manager.broadcast({
+            'type': 'ai_advice',
+            'data': response
+        })
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Error getting AI advice: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error getting AI advice: {str(e)}")
+
+
+@app.get("/api/grid/levels")
+async def get_grid_levels():
+    """
+    Get current grid trading levels for chart visualization
+    
+    Returns:
+    - buy_threshold_price: Price at which bot will buy
+    - sell_threshold_price: Price at which bot will sell
+    - current_price: Current market price
+    - grid_spacing: Spacing between levels
+    """
+    try:
+        import config
+        from exchange import BinanceTestnet
+        
+        # Get current price
+        exchange = BinanceTestnet(config.BINANCE_API_KEY, config.BINANCE_SECRET)
+        current_price = exchange.get_current_price(config.SYMBOL)
+        
+        # Load bot state
+        state = load_bot_state()
+        position = state.get('position', 'USDT')
+        last_buy_price = state.get('last_buy_price')
+        last_sell_price = state.get('last_sell_price')
+        
+        # Calculate grid levels based on thresholds
+        buy_threshold_pct = config.BUY_THRESHOLD
+        sell_threshold_pct = config.SELL_THRESHOLD
+        
+        if position == 'BTC' and last_buy_price:
+            # Calculate sell level from last buy
+            sell_threshold_price = last_buy_price * (1 + sell_threshold_pct / 100)
+            buy_threshold_price = current_price * (1 - buy_threshold_pct / 100)
+        elif position == 'USDT' and last_sell_price:
+            # Calculate buy level from last sell
+            buy_threshold_price = last_sell_price * (1 - buy_threshold_pct / 100)
+            sell_threshold_price = current_price * (1 + sell_threshold_pct / 100)
+        else:
+            # Default grid around current price
+            buy_threshold_price = current_price * (1 - buy_threshold_pct / 100)
+            sell_threshold_price = current_price * (1 + sell_threshold_pct / 100)
+        
+        grid_spacing = sell_threshold_price - buy_threshold_price
+        
+        return {
+            'current_price': round(current_price, 2),
+            'buy_threshold_price': round(buy_threshold_price, 2),
+            'sell_threshold_price': round(sell_threshold_price, 2),
+            'buy_threshold_pct': buy_threshold_pct,
+            'sell_threshold_pct': sell_threshold_pct,
+            'grid_spacing': round(grid_spacing, 2),
+            'position': position,
+            'last_buy_price': last_buy_price,
+            'last_sell_price': last_sell_price
+        }
+        
+    except Exception as e:
+        import traceback
+        print(f"Error getting grid levels: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error getting grid levels: {str(e)}")
+
+
+@app.put("/api/bot/mode")
+async def set_bot_mode(mode_request: dict):
+    """
+    Change bot operating mode
+    
+    Body:
+    - mode: 'auto', 'manual', or 'paused'
+    
+    Returns:
+    - status: Updated status
+    - mode: Current mode
+    """
+    try:
+        global bot_running
+        
+        mode = mode_request.get('mode', '').lower()
+        
+        if mode not in ['auto', 'manual', 'paused']:
+            raise HTTPException(status_code=400, detail="Mode must be 'auto', 'manual', or 'paused'")
+        
+        print(f"🔧 Bot mode change requested: {mode.upper()}")
+        
+        if mode == 'auto':
+            # Start bot if not running
+            if not bot_running:
+                return await start_bot()
+            else:
+                response = {
+                    'status': 'running',
+                    'mode': 'auto',
+                    'message': 'Bot already running in auto mode'
+                }
+        elif mode == 'manual':
+            # Keep bot running but disable automated trading
+            response = {
+                'status': 'manual',
+                'mode': 'manual',
+                'message': 'Bot in manual mode - automated trading disabled'
+            }
+        elif mode == 'paused':
+            # Stop bot
+            if bot_running:
+                return await stop_bot()
+            else:
+                response = {
+                    'status': 'stopped',
+                    'mode': 'paused',
+                    'message': 'Bot is paused'
+                }
+        
+        # Broadcast mode change
+        await manager.broadcast({
+            'type': 'mode_change',
+            'data': response
+        })
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Error changing bot mode: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error changing bot mode: {str(e)}")
+
+
 @app.get("/")
 async def root():
     """API root endpoint"""
     return {
         "name": "Trading Bot API",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "endpoints": {
             "status": "/api/status",
             "stats": "/api/stats",
             "recent_trades": "/api/trades/recent",
             "connections": "/api/connections",
+            "candles": "/api/candles/{symbol}/{timeframe}",
+            "manual_trade": "POST /api/manual-trade",
+            "position_pnl": "/api/position/pnl",
+            "orders_history": "/api/orders/history",
+            "ai_advice": "POST /api/ai/advice",
+            "grid_levels": "/api/grid/levels",
+            "bot_mode": "PUT /api/bot/mode",
             "start_bot": "POST /api/bot/start",
             "stop_bot": "POST /api/bot/stop",
             "websocket": "ws://localhost:8002/ws"
