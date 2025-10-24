@@ -408,7 +408,9 @@ def parse_trade_history() -> List[Dict]:
         log_files = sorted(logs_dir.glob('trades_*.log'), reverse=True)[:2]
         
         # Pattern to match: 2025-10-23 08:14:00 - GridTradingStrategy - INFO - 📝 BUY RECORDED: $65,000.00
+        # Also try to extract amount if present in logs
         buy_pattern = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}).*?(BUY|SELL) RECORDED: \$([0-9,]+\.\d{2})'
+        amount_pattern = r'Amount: ([\d.]+) BTC'
         
         for log_file in log_files:
             with open(log_file, 'r', encoding='utf-8') as f:
@@ -419,10 +421,17 @@ def parse_trade_history() -> List[Dict]:
                 action = match.group(2)
                 price_str = match.group(3).replace(',', '')
                 
+                # Try to find amount in nearby log context (within 200 chars)
+                match_start = match.start()
+                context = content[max(0, match_start - 200):match_start + 200]
+                amount_match = re.search(amount_pattern, context)
+                amount = float(amount_match.group(1)) if amount_match else 0.001
+                
                 trades.append({
                     'timestamp': timestamp_str,
                     'action': action,
                     'price': float(price_str),
+                    'amount': amount,
                     'result': None  # Will be calculated by comparing consecutive trades
                 })
         
