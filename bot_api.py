@@ -1082,13 +1082,7 @@ async def set_bot_mode(mode_request: dict):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """
-    WebSocket endpoint for real-time updates
-    
-    Sends:
-    - price_update: Live price changes
-    - trade_executed: When trades are executed
-    - status_change: Bot status changes
-    - heartbeat: Keep-alive messages
+    WebSocket endpoint for real-time updates with improved keep-alive
     """
     print("🔌 WebSocket connection attempt...")
     
@@ -1111,65 +1105,61 @@ async def websocket_endpoint(websocket: WebSocket):
         except Exception as e:
             print(f"❌ Error sending initial status: {e}")
         
-        # CRITICAL: Keep connection alive indefinitely
+        # CRITICAL FIX: Keep connection alive indefinitely with proper error handling
         while True:
             try:
-                # Wait for messages from client with 60-second timeout
-                # This allows us to detect dead connections and send keepalives
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
-                
-                # Handle client messages
-                if data:
-                    try:
-                        msg = json.loads(data)
-                        
-                        # Handle ping/pong
-                        if msg.get('type') == 'ping':
-                            await websocket.send_json({
-                                'type': 'pong',
-                                'timestamp': datetime.now().isoformat()
-                            })
-                        
-                        # Handle status request
-                        elif msg.get('command') == 'get_status':
-                            status_data = await get_status()
-                            await websocket.send_json({
-                                'type': 'status',
-                                'data': status_data
-                            })
-                        
-                        # Handle stats request
-                        elif msg.get('command') == 'get_stats':
-                            stats_data = await get_stats()
-                            await websocket.send_json({
-                                'type': 'stats',
-                                'data': stats_data
-                            })
-                    except json.JSONDecodeError:
-                        pass  # Ignore invalid JSON
-                    except Exception as e:
-                        print(f"⚠️ Error handling message: {e}")
-                        
-            except asyncio.TimeoutError:
-                # No message for 60 seconds - send keepalive ping to check connection health
+                # Try to receive message with shorter timeout
                 try:
-                    await websocket.send_json({
-                        'type': 'heartbeat',
-                        'timestamp': datetime.now().isoformat()
-                    })
-                    print("💓 Sent keepalive heartbeat")
-                except Exception as e:
-                    print(f"❌ Failed to send heartbeat, connection dead: {e}")
-                    break  # Connection is dead, exit loop
+                    data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
                     
+                    # Handle client messages
+                    if data:
+                        try:
+                            msg = json.loads(data)
+                            
+                            # Handle ping/pong
+                            if msg.get('type') == 'ping':
+                                await websocket.send_json({
+                                    'type': 'pong',
+                                    'timestamp': datetime.now().isoformat()
+                                })
+                                print("🏓 Pong sent")
+                            
+                            # Handle status request
+                            elif msg.get('command') == 'get_status':
+                                status_data = await get_status()
+                                await websocket.send_json({
+                                    'type': 'status',
+                                    'data': status_data
+                                })
+                                print("📊 Status request handled")
+                                
+                        except json.JSONDecodeError:
+                            print("⚠️ Invalid JSON received, ignoring")
+                        except Exception as e:
+                            print(f"⚠️ Error handling message: {e}")
+                            
+                except asyncio.TimeoutError:
+                    # No message for 30 seconds - send keepalive
+                    # CRITICAL: Wrap in try/except to prevent disconnect on error
+                    try:
+                        await websocket.send_json({
+                            'type': 'heartbeat',
+                            'timestamp': datetime.now().isoformat()
+                        })
+                        print("💓 Heartbeat sent")
+                    except Exception as e:
+                        print(f"❌ Heartbeat failed: {e}")
+                        # Connection is dead, break loop
+                        break
+                        
             except WebSocketDisconnect:
                 print("👋 Client disconnected normally")
                 break
             except Exception as e:
-                print(f"❌ WebSocket receive error: {e}")
-                import traceback
-                print(traceback.format_exc())
-                break
+                print(f"❌ WebSocket error: {e}")
+                # Don't break immediately on other errors, try to continue
+                await asyncio.sleep(1)
                 
     except Exception as e:
         print(f"❌ WebSocket connection error: {e}")
@@ -1177,7 +1167,7 @@ async def websocket_endpoint(websocket: WebSocket):
         print(traceback.format_exc())
     finally:
         manager.disconnect(websocket)
-        print("🔌 WebSocket connection closed")
+        print("🔌 WebSocket connection closed and cleaned up")
 
 
 # Background task for price updates
